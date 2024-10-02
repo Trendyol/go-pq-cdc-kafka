@@ -33,3 +33,7 @@ func NewProducer(kafkaClient kafka.Client,
 		),
 	}, nil
 }
+
+func (p *Producer) GetMetric() *Metric {
+	return p.ProducerBatch.metric
+}
