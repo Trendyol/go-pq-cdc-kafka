@@ -6,6 +6,11 @@ import (
 	"github.com/Trendyol/go-dcp/helpers"
 )
 
+type Metric struct {
+	KafkaConnectorLatency int64
+	BatchProduceLatency   int64
+}
+
 type Producer struct {
 	ProducerBatch *Batch
 }
