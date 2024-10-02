@@ -4,7 +4,6 @@ go 1.21
 
 require (
 	github.com/Trendyol/go-dcp v1.1.50
-	github.com/Trendyol/go-dcp-kafka v1.1.51
 	github.com/segmentio/kafka-go v0.4.47
 	github.com/valyala/fasthttp v1.52.0
 )
