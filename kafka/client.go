@@ -1,0 +1,108 @@
+package kafka
+
+import (
+	"crypto/tls"
+	"crypto/x509"
+	"github.com/Trendyol/go-dcp-cdc-kafka/config"
+	"github.com/Trendyol/go-dcp/logger"
+	"github.com/segmentio/kafka-go/sasl"
+	"github.com/segmentio/kafka-go/sasl/scram"
+	"net"
+	"os"
+	"time"
+
+	"github.com/segmentio/kafka-go"
+)
+
+type Client interface{}
+
+type client struct {
+	addr        net.Addr
+	kafkaClient *kafka.Client
+	config      *config.Connector
+	transport   *kafka.Transport
+	dialer      *kafka.Dialer
+}
+
+type tlsContent struct {
+	config *tls.Config
+	sasl   sasl.Mechanism
+}
+
+func newTLSContent(
+	scramUsername,
+	scramPassword,
+	rootCAPath,
+	interCAPath string,
+) (*tlsContent, error) {
+	mechanism, err := scram.Mechanism(scram.SHA512, scramUsername, scramPassword)
+	if err != nil {
+		return nil, err
+	}
+
+	caCert, err := os.ReadFile(os.ExpandEnv(rootCAPath))
+	if err != nil {
+		logger.Log.Error("an error occurred while reading ca.pem file! Error: %s", err.Error())
+		return nil, err
+	}
+
+	intCert, err := os.ReadFile(os.ExpandEnv(interCAPath))
+	if err != nil {
+		logger.Log.Error("an error occurred while reading int.pem file! Error: %s", err.Error())
+		return nil, err
+	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+	caCertPool.AppendCertsFromPEM(intCert)
+
+	return &tlsContent{
+		config: &tls.Config{
+			RootCAs:    caCertPool,
+			MinVersion: tls.VersionTLS12,
+		},
+		sasl: mechanism,
+	}, nil
+}
+
+func NewClient(config *config.Connector) Client {
+	addr := kafka.TCP(config.Kafka.Brokers...)
+
+	newClient := &client{
+		addr: addr,
+		kafkaClient: &kafka.Client{
+			Addr: addr,
+		},
+		config: config,
+	}
+
+	newClient.transport = &kafka.Transport{
+		MetadataTTL:    config.Kafka.MetadataTTL,
+		MetadataTopics: config.Kafka.MetadataTopics,
+		ClientID:       config.Kafka.ClientID,
+	}
+
+	if config.Kafka.SecureConnection {
+		tlsContent, err := newTLSContent(
+			config.Kafka.ScramUsername,
+			config.Kafka.ScramPassword,
+			config.Kafka.RootCAPath,
+			config.Kafka.InterCAPath,
+		)
+		if err != nil {
+			panic(err)
+		}
+
+		newClient.transport.TLS = tlsContent.config
+		newClient.transport.SASL = tlsContent.sasl
+
+		newClient.dialer = &kafka.Dialer{
+			Timeout:       10 * time.Second,
+			DualStack:     true,
+			TLS:           tlsContent.config,
+			SASLMechanism: tlsContent.sasl,
+		}
+	}
+	newClient.kafkaClient.Transport = newClient.transport
+	return newClient
+}
