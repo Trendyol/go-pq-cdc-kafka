@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	cdc "github.com/Trendyol/go-dcp-cdc-kafka"
 	"github.com/Trendyol/go-dcp-cdc-kafka/config"
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
 	cdcconfig "github.com/Trendyol/go-pq-cdc/config"
 	"github.com/Trendyol/go-pq-cdc/pq/publication"
 	"github.com/Trendyol/go-pq-cdc/pq/slot"
+	gokafka "github.com/segmentio/kafka-go"
 	"log/slog"
 	"os"
 )
@@ -48,7 +48,7 @@ func main() {
 		},
 		Kafka: config.Kafka{
 			CollectionTopicMapping: map[string]string{"_default": "topic"},
-			Brokers:                []string{"localhost:9092"},
+			Brokers:                []string{"localhost:19092"},
 		},
 	}
 
@@ -62,12 +62,12 @@ func main() {
 	connector.Start(ctx)
 }
 
-func Handler(msg *cdc.Message) []kafka.Event {
+func Handler(msg *cdc.Message) []gokafka.Message {
 	if msg.Type.IsUpdate() || msg.Type.IsInsert() {
 		msg.NewData["operation"] = msg.Type
 		newData, _ := json.Marshal(msg.NewData)
 
-		return []kafka.Event{
+		return []gokafka.Message{
 			{
 				Headers: nil,
 				Key:     []byte(msg.NewData["id"].(string)),
@@ -80,7 +80,7 @@ func Handler(msg *cdc.Message) []kafka.Event {
 		msg.OldData["operation"] = msg.Type
 		oldData, _ := json.Marshal(msg.OldData)
 
-		return []kafka.Event{
+		return []gokafka.Message{
 			{
 				Headers: nil,
 				Key:     []byte(msg.OldData["id"].(string)),
@@ -89,5 +89,5 @@ func Handler(msg *cdc.Message) []kafka.Event {
 		}
 	}
 
-	return []kafka.Event{}
+	return []gokafka.Message{}
 }
