@@ -1,7 +1,9 @@
 package kafka
 
+import "github.com/segmentio/kafka-go"
+
 type SinkResponseHandlerContext struct {
-	Message *Event
+	Message *kafka.Message
 	Err     error
 }
 
