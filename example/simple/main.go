@@ -19,13 +19,13 @@ func main() {
 	cfg := config.Connector{
 		CDC: cdcconfig.Config{
 			Host:      "127.0.0.1",
-			Username:  "es_cdc_user",
-			Password:  "es_cdc_pass",
-			Database:  "es_cdc_db",
+			Username:  "cdc_user",
+			Password:  "cdc_pass",
+			Database:  "cdc_db",
 			DebugMode: false,
 			Publication: publication.Config{
 				CreateIfNotExists: true,
-				Name:              "es_cdc_publication",
+				Name:              "cdc_publication",
 				Operations: publication.Operations{
 					publication.OperationInsert,
 					publication.OperationDelete,
@@ -39,7 +39,7 @@ func main() {
 			},
 			Slot: slot.Config{
 				CreateIfNotExists:           true,
-				Name:                        "es_cdc_slot",
+				Name:                        "cdc_slot",
 				SlotActivityCheckerInterval: 3000,
 			},
 			Metric: cdcconfig.MetricConfig{
@@ -47,7 +47,7 @@ func main() {
 			},
 		},
 		Kafka: config.Kafka{
-			CollectionTopicMapping: map[string]string{"_default": "topic"},
+			CollectionTopicMapping: map[string]string{"public.users": "users.0"},
 			Brokers:                []string{"localhost:19092"},
 		},
 	}
