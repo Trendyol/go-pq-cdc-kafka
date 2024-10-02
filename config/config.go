@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Trendyol/go-pq-cdc/config"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -32,6 +33,7 @@ type Kafka struct {
 
 type Connector struct {
 	Kafka Kafka `yaml:"kafka" mapstructure:"kafka"`
+	CDC   config.Config
 }
 
 func (k *Kafka) GetBalancer() kafka.Balancer {
