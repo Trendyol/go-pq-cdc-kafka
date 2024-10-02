@@ -1,6 +1,8 @@
 package config
 
 import (
+	"github.com/Trendyol/go-dcp-cdc-kafka/internal/bytes"
+	"math"
 	"strconv"
 	"time"
 
@@ -60,4 +62,38 @@ func (k *Kafka) GetCompression() int8 {
 		panic("invalid kafka compression method, given: " + strconv.Itoa(int(k.Compression)))
 	}
 	return k.Compression
+}
+
+func (c *Connector) SetDefault() {
+	if c.Kafka.ReadTimeout == 0 {
+		c.Kafka.ReadTimeout = 30 * time.Second
+	}
+
+	if c.Kafka.WriteTimeout == 0 {
+		c.Kafka.WriteTimeout = 30 * time.Second
+	}
+
+	if c.Kafka.ProducerBatchTickerDuration == 0 {
+		c.Kafka.ProducerBatchTickerDuration = 10 * time.Second
+	}
+
+	if c.Kafka.ProducerBatchSize == 0 {
+		c.Kafka.ProducerBatchSize = 2000
+	}
+
+	if c.Kafka.ProducerBatchBytes == nil {
+		c.Kafka.ProducerBatchBytes, _ = bytes.ParseSize("10mb") // todo: return error
+	}
+
+	if c.Kafka.RequiredAcks == 0 {
+		c.Kafka.RequiredAcks = 1
+	}
+
+	if c.Kafka.MetadataTTL == 0 {
+		c.Kafka.MetadataTTL = 60 * time.Second
+	}
+
+	if c.Kafka.ProducerMaxAttempts == 0 {
+		c.Kafka.ProducerMaxAttempts = math.MaxInt
+	}
 }
