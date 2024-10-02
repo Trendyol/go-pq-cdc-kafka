@@ -86,7 +86,7 @@ func newTLSContent(
 	}, nil
 }
 
-func NewClient(config *config.Connector) Client {
+func NewClient(config *config.Connector) (Client, error) {
 	addr := kafka.TCP(config.Kafka.Brokers...)
 
 	newClient := &client{
@@ -111,7 +111,7 @@ func NewClient(config *config.Connector) Client {
 			config.Kafka.InterCAPath,
 		)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 
 		newClient.transport.TLS = tlsContent.config
@@ -125,5 +125,5 @@ func NewClient(config *config.Connector) Client {
 		}
 	}
 	newClient.kafkaClient.Transport = newClient.transport
-	return newClient
+	return newClient, nil
 }
