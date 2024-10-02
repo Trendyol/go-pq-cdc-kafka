@@ -1,9 +1,7 @@
 package kafka
 
-import "github.com/Trendyol/go-dcp-cdc-kafka/kafka/message"
-
 type SinkResponseHandlerContext struct {
-	Message *message.KafkaMessage
+	Message *Event
 	Err     error
 }
 
