@@ -1,4 +1,4 @@
-package simple
+package main
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	gokafka "github.com/segmentio/kafka-go"
 	"log/slog"
 	"os"
+	"strconv"
 )
 
 func main() {
