@@ -2,6 +2,7 @@ package go_pq_cdc_kafka
 
 import (
 	"context"
+	"fmt"
 	"github.com/Trendyol/go-dcp-cdc-kafka/config"
 	"github.com/Trendyol/go-dcp-cdc-kafka/internal/slices"
 	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
@@ -104,16 +105,31 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 		return
 	}
 
-	messages := kafka.Events(events).KafkaMessages(c.config, msg.TableNamespace, msg.TableName)
+	for i := range events {
+		events[i].Topic = getTopicName(c.config, msg.TableNamespace, msg.TableName, events[i].Topic)
+	}
 
 	batchSizeLimit := c.config.Kafka.ProducerBatchSize
-	if len(messages) > batchSizeLimit {
-		chunks := slices.ChunkWithSize[gokafka.Message](messages, batchSizeLimit)
+	if len(events) > batchSizeLimit {
+		chunks := slices.ChunkWithSize[gokafka.Message](events, batchSizeLimit)
 		lastChunkIndex := len(chunks) - 1
 		for idx, chunk := range chunks {
 			c.producer.Produce(ctx, msg.EventTime, chunk, idx == lastChunkIndex)
 		}
 	} else {
-		c.producer.Produce(ctx, msg.EventTime, messages, true)
+		c.producer.Produce(ctx, msg.EventTime, events, true)
 	}
+}
+
+func getTopicName(config *config.Connector, tableNamespace, tableName, actionIndexName string) string {
+	if actionIndexName != "" {
+		return actionIndexName
+	}
+
+	indexName := config.Kafka.CollectionTopicMapping[fmt.Sprintf("%s.%s", tableNamespace, tableName)]
+	if indexName == "" {
+		panic(fmt.Sprintf("there is no index mapping for table: %s.%s on your configuration", tableNamespace, tableName))
+	}
+
+	return indexName
 }
