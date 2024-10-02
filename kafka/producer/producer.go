@@ -4,6 +4,9 @@ import (
 	"github.com/Trendyol/go-dcp-cdc-kafka/config"
 	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
 	"github.com/Trendyol/go-dcp/helpers"
+	"github.com/Trendyol/go-pq-cdc/pq/replication"
+	gokafka "github.com/segmentio/kafka-go"
+	"time"
 )
 
 type Metric struct {
@@ -17,7 +20,6 @@ type Producer struct {
 
 func NewProducer(kafkaClient kafka.Client,
 	config *config.Connector,
-	dcpCheckpointCommit func(),
 	sinkResponseHandler kafka.SinkResponseHandler,
 ) (Producer, error) {
 	writer := kafkaClient.Producer()
@@ -28,10 +30,27 @@ func NewProducer(kafkaClient kafka.Client,
 			writer,
 			config.Kafka.ProducerBatchSize,
 			int64(helpers.ResolveUnionIntOrStringValue(config.Kafka.ProducerBatchBytes)),
-			dcpCheckpointCommit,
 			sinkResponseHandler,
 		),
 	}, nil
+}
+
+func (p *Producer) Produce(
+	ctx *replication.ListenerContext,
+	eventTime time.Time,
+	messages []gokafka.Message,
+	isLastChunk bool,
+) {
+	p.ProducerBatch.AddEvents(ctx, messages, eventTime, isLastChunk)
+}
+
+func (p *Producer) StartBatch() {
+	p.ProducerBatch.StartBatchTicker()
+}
+
+func (p *Producer) Close() error {
+	p.ProducerBatch.Close()
+	return p.ProducerBatch.Writer.Close()
 }
 
 func (p *Producer) GetMetric() *Metric {
