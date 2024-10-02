@@ -70,7 +70,7 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 		return []gokafka.Message{
 			{
 				Headers: nil,
-				Key:     []byte(msg.NewData["id"].(string)),
+				Key:     []byte(strconv.Itoa(int(msg.NewData["id"].(int32)))),
 				Value:   newData,
 			},
 		}
@@ -83,7 +83,7 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 		return []gokafka.Message{
 			{
 				Headers: nil,
-				Key:     []byte(msg.OldData["id"].(string)),
+				Key:     []byte(strconv.Itoa(int(msg.OldData["id"].(int32)))),
 				Value:   oldData,
 			},
 		}
