@@ -1,9 +1,10 @@
 package config
 
 import (
-	"github.com/segmentio/kafka-go"
 	"strconv"
 	"time"
+
+	"github.com/segmentio/kafka-go"
 )
 
 type Kafka struct {

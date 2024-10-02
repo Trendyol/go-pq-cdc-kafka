@@ -3,14 +3,15 @@ package kafka
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"github.com/Trendyol/go-dcp-cdc-kafka/config"
-	"github.com/Trendyol/go-dcp/logger"
-	"github.com/segmentio/kafka-go/sasl"
-	"github.com/segmentio/kafka-go/sasl/scram"
 	"math"
 	"net"
 	"os"
 	"time"
+
+	"github.com/Trendyol/go-dcp-cdc-kafka/config"
+	"github.com/Trendyol/go-dcp/logger"
+	"github.com/segmentio/kafka-go/sasl"
+	"github.com/segmentio/kafka-go/sasl/scram"
 
 	"github.com/segmentio/kafka-go"
 )

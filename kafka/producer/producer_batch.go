@@ -1,10 +1,10 @@
 package producer
 
 import (
+	"time"
+
 	gKafka "github.com/Trendyol/go-dcp-cdc-kafka/kafka"
 	"github.com/segmentio/kafka-go"
-	"sync"
-	"time"
 )
 
 type Batch struct {
@@ -14,12 +14,9 @@ type Batch struct {
 	dcpCheckpointCommit func()
 	metric              *Metric
 	messages            []kafka.Message
-	currentMessageBytes int64
 	batchTickerDuration time.Duration
 	batchLimit          int
 	batchBytes          int64
-	flushLock           sync.Mutex
-	isDcpRebalancing    bool
 }
 
 func newBatch(batchTime time.Duration, writer *kafka.Writer, batchLimit int, batchBytes int64, dcpCheckpointCommit func(), sinkResponseHandler gKafka.SinkResponseHandler) *Batch {
