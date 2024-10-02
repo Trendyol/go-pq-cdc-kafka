@@ -1,6 +1,8 @@
 package config
 
 import (
+	"github.com/segmentio/kafka-go"
+	"strconv"
 	"time"
 )
 
@@ -29,4 +31,30 @@ type Kafka struct {
 
 type Connector struct {
 	Kafka Kafka `yaml:"kafka" mapstructure:"kafka"`
+}
+
+func (k *Kafka) GetBalancer() kafka.Balancer {
+	switch k.Balancer {
+	case "", "Hash":
+		return &kafka.Hash{}
+	case "LeastBytes":
+		return &kafka.LeastBytes{}
+	case "RoundRobin":
+		return &kafka.RoundRobin{}
+	case "ReferenceHash":
+		return &kafka.ReferenceHash{}
+	case "CRC32Balancer":
+		return kafka.CRC32Balancer{}
+	case "Murmur2Balancer":
+		return kafka.Murmur2Balancer{}
+	default:
+		panic("invalid kafka balancer method, given: " + k.Balancer)
+	}
+}
+
+func (k *Kafka) GetCompression() int8 {
+	if k.Compression < 0 || k.Compression > 4 {
+		panic("invalid kafka compression method, given: " + strconv.Itoa(int(k.Compression)))
+	}
+	return k.Compression
 }

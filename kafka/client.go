@@ -7,6 +7,7 @@ import (
 	"github.com/Trendyol/go-dcp/logger"
 	"github.com/segmentio/kafka-go/sasl"
 	"github.com/segmentio/kafka-go/sasl/scram"
+	"math"
 	"net"
 	"os"
 	"time"
@@ -14,7 +15,9 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-type Client interface{}
+type Client interface {
+	Producer() *kafka.Writer
+}
 
 type client struct {
 	addr        net.Addr
@@ -27,6 +30,23 @@ type client struct {
 type tlsContent struct {
 	config *tls.Config
 	sasl   sasl.Mechanism
+}
+
+func (c *client) Producer() *kafka.Writer {
+	return &kafka.Writer{
+		Addr:                   kafka.TCP(c.config.Kafka.Brokers...),
+		Balancer:               c.config.Kafka.GetBalancer(),
+		BatchSize:              c.config.Kafka.ProducerBatchSize,
+		BatchBytes:             math.MaxInt,
+		BatchTimeout:           time.Nanosecond,
+		MaxAttempts:            c.config.Kafka.ProducerMaxAttempts,
+		ReadTimeout:            c.config.Kafka.ReadTimeout,
+		WriteTimeout:           c.config.Kafka.WriteTimeout,
+		RequiredAcks:           kafka.RequiredAcks(c.config.Kafka.RequiredAcks),
+		Compression:            kafka.Compression(c.config.Kafka.GetCompression()),
+		Transport:              c.transport,
+		AllowAutoTopicCreation: c.config.Kafka.AllowAutoTopicCreation,
+	}
 }
 
 func newTLSContent(
