@@ -1,4 +1,4 @@
-package go_pq_cdc_kafka
+package cdc
 
 import (
 	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
