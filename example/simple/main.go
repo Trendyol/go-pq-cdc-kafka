@@ -3,15 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
-	cdc "github.com/Trendyol/go-dcp-cdc-kafka"
-	"github.com/Trendyol/go-dcp-cdc-kafka/config"
+	"log/slog"
+	"os"
+	"strconv"
+
+	cdc "github.com/Trendyol/go-pq-cdc-kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/config"
 	cdcconfig "github.com/Trendyol/go-pq-cdc/config"
 	"github.com/Trendyol/go-pq-cdc/pq/publication"
 	"github.com/Trendyol/go-pq-cdc/pq/slot"
 	gokafka "github.com/segmentio/kafka-go"
-	"log/slog"
-	"os"
-	"strconv"
 )
 
 func main() {

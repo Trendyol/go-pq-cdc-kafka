@@ -1,10 +1,11 @@
 package config
 
 import (
-	"github.com/Trendyol/go-dcp-cdc-kafka/internal/bytes"
 	"math"
 	"strconv"
 	"time"
+
+	"github.com/Trendyol/go-pq-cdc-kafka/internal/bytes"
 
 	"github.com/Trendyol/go-pq-cdc/config"
 	"github.com/segmentio/kafka-go"

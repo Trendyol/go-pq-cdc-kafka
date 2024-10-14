@@ -3,11 +3,12 @@ package go_pq_cdc_kafka
 import (
 	"context"
 	"fmt"
-	"github.com/Trendyol/go-dcp-cdc-kafka/config"
-	"github.com/Trendyol/go-dcp-cdc-kafka/internal/slices"
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka/producer"
+
 	cdc "github.com/Trendyol/go-pq-cdc"
+	"github.com/Trendyol/go-pq-cdc-kafka/config"
+	"github.com/Trendyol/go-pq-cdc-kafka/internal/slices"
+	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/kafka/producer"
 	"github.com/Trendyol/go-pq-cdc/logger"
 	"github.com/Trendyol/go-pq-cdc/pq/message/format"
 	"github.com/Trendyol/go-pq-cdc/pq/replication"

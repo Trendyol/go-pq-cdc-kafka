@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Trendyol/go-pq-cdc/logger"
-	"github.com/Trendyol/go-pq-cdc/pq/replication"
 	"io"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
+	"github.com/Trendyol/go-pq-cdc/logger"
+	"github.com/Trendyol/go-pq-cdc/pq/replication"
+
+	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
 	gokafka "github.com/segmentio/kafka-go"
 )
 

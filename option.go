@@ -1,7 +1,7 @@
 package go_pq_cdc_kafka
 
 import (
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
 )
 
 type Option func(Connector)

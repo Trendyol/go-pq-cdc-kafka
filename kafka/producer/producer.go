@@ -1,12 +1,13 @@
 package producer
 
 import (
-	"github.com/Trendyol/go-dcp-cdc-kafka/config"
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
+	"time"
+
 	"github.com/Trendyol/go-dcp/helpers"
+	"github.com/Trendyol/go-pq-cdc-kafka/config"
+	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
 	"github.com/Trendyol/go-pq-cdc/pq/replication"
 	gokafka "github.com/segmentio/kafka-go"
-	"time"
 )
 
 type Metric struct {

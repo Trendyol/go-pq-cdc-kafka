@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/Trendyol/go-dcp-cdc-kafka/config"
 	"github.com/Trendyol/go-dcp/logger"
+	"github.com/Trendyol/go-pq-cdc-kafka/config"
 	"github.com/segmentio/kafka-go/sasl"
 	"github.com/segmentio/kafka-go/sasl/scram"
 
