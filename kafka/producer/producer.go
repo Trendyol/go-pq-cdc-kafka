@@ -11,11 +11,6 @@ import (
 	gokafka "github.com/segmentio/kafka-go"
 )
 
-type Metric struct {
-	KafkaConnectorLatency int64
-	BatchProduceLatency   int64
-}
-
 type Producer struct {
 	ProducerBatch *Batch
 }
@@ -39,6 +34,7 @@ func NewProducer(
 			config.Kafka.ProducerBatchSize,
 			int64(batchBytes),
 			responseHandler,
+			config.CDC.Slot.Name,
 		),
 	}, nil
 }
@@ -61,6 +57,6 @@ func (p *Producer) Close() error {
 	return p.ProducerBatch.Writer.Close()
 }
 
-func (p *Producer) GetMetric() *Metric {
+func (p *Producer) GetMetric() Metric {
 	return p.ProducerBatch.metric
 }

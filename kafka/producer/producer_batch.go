@@ -20,7 +20,7 @@ type Batch struct {
 	responseHandler     kafka.ResponseHandler
 	batchTicker         *time.Ticker
 	Writer              *gokafka.Writer
-	metric              *Metric
+	metric              Metric
 	messages            []gokafka.Message
 	batchTickerDuration time.Duration
 	batchLimit          int
@@ -35,11 +35,12 @@ func newBatch(
 	batchLimit int,
 	batchBytes int64,
 	responseHandler kafka.ResponseHandler,
+	slotName string,
 ) *Batch {
 	batch := &Batch{
 		batchTickerDuration: batchTime,
 		batchTicker:         time.NewTicker(batchTime),
-		metric:              &Metric{},
+		metric:              NewMetric(slotName),
 		messages:            make([]gokafka.Message, 0, batchLimit),
 		Writer:              writer,
 		batchLimit:          batchLimit,
@@ -76,7 +77,7 @@ func (b *Batch) AddEvents(ctx *replication.ListenerContext, messages []gokafka.M
 	b.flushLock.Unlock()
 
 	if isLastChunk {
-		b.metric.KafkaConnectorLatency = time.Since(eventTime).Milliseconds()
+		b.metric.SetProcessLatency(time.Since(eventTime).Nanoseconds())
 	}
 
 	if len(b.messages) >= b.batchLimit || b.currentMessageBytes >= b.batchBytes {
@@ -101,7 +102,7 @@ func (b *Batch) FlushMessages() {
 			return
 		}
 
-		b.metric.BatchProduceLatency = time.Since(startedTime).Milliseconds()
+		b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
 
 		if b.responseHandler != nil {
 			switch e := err.(type) {

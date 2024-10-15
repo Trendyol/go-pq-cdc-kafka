@@ -15,7 +15,6 @@ import (
 	"github.com/Trendyol/go-pq-cdc/pq/timescaledb"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	gokafka "github.com/segmentio/kafka-go"
 )
 
 type Connector interface {
@@ -62,6 +61,7 @@ func NewConnector(ctx context.Context, config config.Connector, handler Handler,
 		return nil, err
 	}
 
+	pqCDC.SetMetricCollectors(kafkaConnector.producer.GetMetric().PrometheusCollectors()...)
 	pqCDC.SetMetricCollectors(kafkaConnector.metrics...)
 
 	return kafkaConnector, nil
@@ -121,7 +121,7 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 
 	batchSizeLimit := c.cfg.Kafka.ProducerBatchSize
 	if len(events) > batchSizeLimit {
-		chunks := slices.ChunkWithSize[gokafka.Message](events, batchSizeLimit)
+		chunks := slices.ChunkWithSize(events, batchSizeLimit)
 		lastChunkIndex := len(chunks) - 1
 		for idx, chunk := range chunks {
 			c.producer.Produce(ctx, msg.EventTime, chunk, idx == lastChunkIndex)
