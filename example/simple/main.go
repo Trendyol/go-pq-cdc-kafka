@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"time"
 
 	cdc "github.com/Trendyol/go-pq-cdc-kafka"
 	"github.com/Trendyol/go-pq-cdc-kafka/config"
@@ -62,10 +63,15 @@ func main() {
 			Metric: cdcconfig.MetricConfig{
 				Port: 8081,
 			},
+			Logger: cdcconfig.LoggerConfig{
+				LogLevel: slog.LevelInfo,
+			},
 		},
 		Kafka: config.Kafka{
-			TableTopicMapping: map[string]string{"public.users": "users.0"},
-			Brokers:           []string{"localhost:19092"},
+			TableTopicMapping:           map[string]string{"public.users": "users.0"},
+			Brokers:                     []string{"localhost:19092"},
+			AllowAutoTopicCreation:      true,
+			ProducerBatchTickerDuration: time.Millisecond * 200,
 		},
 	}
 
@@ -80,6 +86,7 @@ func main() {
 }
 
 func Handler(msg *cdc.Message) []gokafka.Message {
+	slog.Info("change captured", "message", msg)
 	if msg.Type.IsUpdate() || msg.Type.IsInsert() {
 		msg.NewData["operation"] = msg.Type
 		newData, _ := json.Marshal(msg.NewData)
