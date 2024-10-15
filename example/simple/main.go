@@ -15,6 +15,21 @@ import (
 	gokafka "github.com/segmentio/kafka-go"
 )
 
+/*
+	psql "postgres://cdc_user:cdc_pass@127.0.0.1/cdc_db?replication=database"
+
+	CREATE TABLE users (
+	 id serial PRIMARY KEY,
+	 name text NOT NULL,
+	 created_on timestamptz
+	);
+
+	INSERT INTO users (name)
+	SELECT
+		'Oyleli' || i
+	FROM generate_series(1, 100) AS i;
+*/
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	ctx := context.TODO()
@@ -49,8 +64,8 @@ func main() {
 			},
 		},
 		Kafka: config.Kafka{
-			CollectionTopicMapping: map[string]string{"public.users": "users.0"},
-			Brokers:                []string{"localhost:19092"},
+			TableTopicMapping: map[string]string{"public.users": "users.0"},
+			Brokers:           []string{"localhost:19092"},
 		},
 	}
 
