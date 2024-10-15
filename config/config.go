@@ -13,7 +13,7 @@ import (
 
 type Kafka struct {
 	ProducerBatchBytes          any               `yaml:"producerBatchBytes"`
-	CollectionTopicMapping      map[string]string `yaml:"collectionTopicMapping"`
+	TableTopicMapping           map[string]string `yaml:"tableTopicMapping"`
 	InterCAPath                 string            `yaml:"interCAPath"`
 	ScramUsername               string            `yaml:"scramUsername"`
 	ScramPassword               string            `yaml:"scramPassword"`
@@ -83,7 +83,7 @@ func (c *Connector) SetDefault() {
 	}
 
 	if c.Kafka.ProducerBatchBytes == nil {
-		c.Kafka.ProducerBatchBytes, _ = bytes.ParseSize("10mb") // todo: return error
+		c.Kafka.ProducerBatchBytes, _ = bytes.ParseSize("10mb")
 	}
 
 	if c.Kafka.RequiredAcks == 0 {
