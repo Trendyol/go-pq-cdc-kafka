@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"math"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/Trendyol/go-pq-cdc-kafka/config"
 	"github.com/Trendyol/go-pq-cdc/logger"
+	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go/sasl"
 	"github.com/segmentio/kafka-go/sasl/scram"
 
@@ -125,5 +127,13 @@ func NewClient(config *config.Connector) (Client, error) {
 		}
 	}
 	newClient.kafkaClient.Transport = newClient.transport
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	_, err := newClient.kafkaClient.Heartbeat(ctx, &kafka.HeartbeatRequest{Addr: addr})
+	cancel()
+	if err != nil {
+		return nil, errors.Wrap(err, "kafka heartbeat")
+	}
+
 	return newClient, nil
 }
