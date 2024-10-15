@@ -1,7 +1,9 @@
 package cdc
 
 import (
+	"github.com/Trendyol/go-dcp/logger"
 	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Option func(Connector)
@@ -20,7 +22,7 @@ func WithResponseHandler(responseHandler kafka.SinkResponseHandler) Option {
 	}
 }
 
-/*func WithPrometheusMetrics(collectors []prometheus.Collector) Option {
+func WithPrometheusMetrics(collectors []prometheus.Collector) Option {
 	return func(c Connector) {
 		c.(*connector).metrics = collectors
 	}
@@ -31,4 +33,3 @@ func WithLogger(l logger.Logger) Option {
 		c.(*connector).cfg.CDC.Logger.Logger = l
 	}
 }
-*/
