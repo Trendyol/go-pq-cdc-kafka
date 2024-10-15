@@ -33,8 +33,8 @@ type Kafka struct {
 }
 
 type Connector struct {
-	Kafka Kafka `yaml:"kafka" mapstructure:"kafka"`
 	CDC   config.Config
+	Kafka Kafka `yaml:"kafka" mapstructure:"kafka"`
 }
 
 func (k *Kafka) GetBalancer() kafka.Balancer {
