@@ -1,8 +1,8 @@
 package cdc
 
 import (
-	"github.com/Trendyol/go-dcp/logger"
 	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
+	"github.com/Trendyol/go-pq-cdc/logger"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
