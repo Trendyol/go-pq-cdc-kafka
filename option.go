@@ -16,9 +16,9 @@ func (ops Options) Apply(c Connector) {
 	}
 }
 
-func WithResponseHandler(responseHandler kafka.SinkResponseHandler) Option {
+func WithResponseHandler(respHandler kafka.ResponseHandler) Option {
 	return func(c Connector) {
-		c.(*connector).responseHandler = responseHandler
+		c.(*connector).responseHandler = respHandler
 	}
 }
 

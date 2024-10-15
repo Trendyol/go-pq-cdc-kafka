@@ -28,7 +28,7 @@ type connector struct {
 	handler         Handler
 	cfg             *config.Connector
 	cdc             cdc.Connector
-	responseHandler kafka.SinkResponseHandler
+	responseHandler kafka.ResponseHandler
 	client          kafka.Client
 	metrics         []prometheus.Collector
 }

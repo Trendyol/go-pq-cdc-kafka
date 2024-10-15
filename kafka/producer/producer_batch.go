@@ -17,7 +17,7 @@ import (
 )
 
 type Batch struct {
-	sinkResponseHandler kafka.SinkResponseHandler
+	responseHandler     kafka.ResponseHandler
 	batchTicker         *time.Ticker
 	Writer              *gokafka.Writer
 	metric              *Metric
@@ -29,7 +29,7 @@ type Batch struct {
 	flushLock           sync.Mutex
 }
 
-func newBatch(batchTime time.Duration, writer *gokafka.Writer, batchLimit int, batchBytes int64, sinkResponseHandler kafka.SinkResponseHandler) *Batch {
+func newBatch(batchTime time.Duration, writer *gokafka.Writer, batchLimit int, batchBytes int64, responseHandler kafka.ResponseHandler) *Batch {
 	batch := &Batch{
 		batchTickerDuration: batchTime,
 		batchTicker:         time.NewTicker(batchTime),
@@ -38,7 +38,7 @@ func newBatch(batchTime time.Duration, writer *gokafka.Writer, batchLimit int, b
 		Writer:              writer,
 		batchLimit:          batchLimit,
 		batchBytes:          batchBytes,
-		sinkResponseHandler: sinkResponseHandler,
+		responseHandler:     responseHandler,
 	}
 	return batch
 }
@@ -86,7 +86,7 @@ func (b *Batch) FlushMessages() {
 		startedTime := time.Now()
 		err := b.Writer.WriteMessages(context.Background(), b.messages...)
 
-		if err != nil && b.sinkResponseHandler == nil {
+		if err != nil && b.responseHandler == nil {
 			if isFatalError(err) {
 				panic(fmt.Errorf("permanent error on Kafka side %v", err))
 			}
@@ -96,7 +96,7 @@ func (b *Batch) FlushMessages() {
 
 		b.metric.BatchProduceLatency = time.Since(startedTime).Milliseconds()
 
-		if b.sinkResponseHandler != nil {
+		if b.responseHandler != nil {
 			switch e := err.(type) {
 			case nil:
 				b.handleResponseSuccess()
@@ -136,12 +136,12 @@ func isFatalError(err error) bool {
 func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors) {
 	for i := range writeErrors {
 		if writeErrors[i] != nil {
-			b.sinkResponseHandler.OnError(&kafka.SinkResponseHandlerContext{
+			b.responseHandler.OnError(&kafka.ResponseHandlerContext{
 				Message: &b.messages[i],
 				Err:     writeErrors[i],
 			})
 		} else {
-			b.sinkResponseHandler.OnSuccess(&kafka.SinkResponseHandlerContext{
+			b.responseHandler.OnSuccess(&kafka.ResponseHandlerContext{
 				Message: &b.messages[i],
 				Err:     nil,
 			})
@@ -151,7 +151,7 @@ func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors) {
 
 func (b *Batch) handleResponseError(err error) {
 	for _, msg := range b.messages {
-		b.sinkResponseHandler.OnError(&kafka.SinkResponseHandlerContext{
+		b.responseHandler.OnError(&kafka.ResponseHandlerContext{
 			Message: &msg,
 			Err:     err,
 		})
@@ -160,7 +160,7 @@ func (b *Batch) handleResponseError(err error) {
 
 func (b *Batch) handleResponseSuccess() {
 	for _, msg := range b.messages {
-		b.sinkResponseHandler.OnSuccess(&kafka.SinkResponseHandlerContext{
+		b.responseHandler.OnSuccess(&kafka.ResponseHandlerContext{
 			Message: &msg,
 			Err:     nil,
 		})
@@ -168,7 +168,7 @@ func (b *Batch) handleResponseSuccess() {
 }
 
 func (b *Batch) handleMessageTooLargeError(mTooLargeError gokafka.MessageTooLargeError) {
-	b.sinkResponseHandler.OnError(&kafka.SinkResponseHandlerContext{
+	b.responseHandler.OnError(&kafka.ResponseHandlerContext{
 		Message: &mTooLargeError.Message,
 		Err:     mTooLargeError,
 	})

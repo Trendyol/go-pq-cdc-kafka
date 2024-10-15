@@ -21,7 +21,7 @@ type Producer struct {
 
 func NewProducer(kafkaClient kafka.Client,
 	config *config.Connector,
-	sinkResponseHandler kafka.SinkResponseHandler,
+	responseHandler kafka.ResponseHandler,
 ) (Producer, error) {
 	writer := kafkaClient.Producer()
 
@@ -31,7 +31,7 @@ func NewProducer(kafkaClient kafka.Client,
 			writer,
 			config.Kafka.ProducerBatchSize,
 			int64(helpers.ResolveUnionIntOrStringValue(config.Kafka.ProducerBatchBytes)),
-			sinkResponseHandler,
+			responseHandler,
 		),
 	}, nil
 }
