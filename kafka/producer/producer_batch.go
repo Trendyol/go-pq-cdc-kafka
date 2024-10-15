@@ -96,7 +96,7 @@ func (b *Batch) FlushMessages() {
 		if err != nil && b.responseHandler == nil {
 			if isFatalError(err) {
 				logger.Error("permanent error on kafka while flush messages", "error", err)
-				panic(fmt.Errorf("permanent error on Kafka side %v", err))
+				panic(fmt.Errorf("permanent error on Kafka side %w", err))
 			}
 			logger.Error("batch producer flush", "error", err)
 			return
@@ -105,7 +105,7 @@ func (b *Batch) FlushMessages() {
 		b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
 
 		if b.responseHandler != nil {
-			switch e := err.(type) {
+			switch e := err.(type) { //nolint:errorLint
 			case nil:
 				b.handleResponseSuccess()
 			case gokafka.WriteErrors:
