@@ -29,7 +29,13 @@ type Batch struct {
 	flushLock           sync.Mutex
 }
 
-func newBatch(batchTime time.Duration, writer *gokafka.Writer, batchLimit int, batchBytes int64, responseHandler kafka.ResponseHandler) *Batch {
+func newBatch(
+	batchTime time.Duration,
+	writer *gokafka.Writer,
+	batchLimit int,
+	batchBytes int64,
+	responseHandler kafka.ResponseHandler,
+) *Batch {
 	batch := &Batch{
 		batchTickerDuration: batchTime,
 		batchTicker:         time.NewTicker(batchTime),
@@ -88,6 +94,7 @@ func (b *Batch) FlushMessages() {
 
 		if err != nil && b.responseHandler == nil {
 			if isFatalError(err) {
+				logger.Error("permanent error on kafka while flush messages", "error", err)
 				panic(fmt.Errorf("permanent error on Kafka side %v", err))
 			}
 			logger.Error("batch producer flush", "error", err)
