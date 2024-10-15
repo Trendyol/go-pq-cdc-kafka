@@ -3,10 +3,11 @@ package producer
 import (
 	"time"
 
-	"github.com/Trendyol/go-dcp/helpers"
 	"github.com/Trendyol/go-pq-cdc-kafka/config"
+	"github.com/Trendyol/go-pq-cdc-kafka/internal/bytes"
 	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
 	"github.com/Trendyol/go-pq-cdc/pq/replication"
+	"github.com/pkg/errors"
 	gokafka "github.com/segmentio/kafka-go"
 )
 
@@ -19,21 +20,31 @@ type Producer struct {
 	ProducerBatch *Batch
 }
 
-func NewProducer(kafkaClient kafka.Client,
+func NewProducer(
+	kafkaClient kafka.Client,
 	config *config.Connector,
 	responseHandler kafka.ResponseHandler,
 ) (Producer, error) {
 	writer := kafkaClient.Producer()
+
+	batchBytes, err := bytes.ParseSize(config.Kafka.ProducerBatchBytes)
+	if err != nil {
+		return Producer{}, errors.Wrap(err, "producerBatchBytes parse")
+	}
 
 	return Producer{
 		ProducerBatch: newBatch(
 			config.Kafka.ProducerBatchTickerDuration,
 			writer,
 			config.Kafka.ProducerBatchSize,
-			int64(helpers.ResolveUnionIntOrStringValue(config.Kafka.ProducerBatchBytes)),
+			int64(batchBytes),
 			responseHandler,
 		),
 	}, nil
+}
+
+func (p *Producer) StartBatch() {
+	p.ProducerBatch.StartBatchTicker()
 }
 
 func (p *Producer) Produce(
@@ -43,10 +54,6 @@ func (p *Producer) Produce(
 	isLastChunk bool,
 ) {
 	p.ProducerBatch.AddEvents(ctx, messages, eventTime, isLastChunk)
-}
-
-func (p *Producer) StartBatch() {
-	p.ProducerBatch.StartBatchTicker()
 }
 
 func (p *Producer) Close() error {

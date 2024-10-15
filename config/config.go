@@ -5,14 +5,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Trendyol/go-pq-cdc-kafka/internal/bytes"
-
 	"github.com/Trendyol/go-pq-cdc/config"
 	"github.com/segmentio/kafka-go"
 )
 
 type Kafka struct {
-	ProducerBatchBytes          any               `yaml:"producerBatchBytes"`
+	ProducerBatchBytes          string            `yaml:"producerBatchBytes"`
 	TableTopicMapping           map[string]string `yaml:"tableTopicMapping"`
 	InterCAPath                 string            `yaml:"interCAPath"`
 	ScramUsername               string            `yaml:"scramUsername"`
@@ -82,8 +80,8 @@ func (c *Connector) SetDefault() {
 		c.Kafka.ProducerBatchSize = 2000
 	}
 
-	if c.Kafka.ProducerBatchBytes == nil {
-		c.Kafka.ProducerBatchBytes, _ = bytes.ParseSize("10mb")
+	if c.Kafka.ProducerBatchBytes == "" {
+		c.Kafka.ProducerBatchBytes = "10mb"
 	}
 
 	if c.Kafka.RequiredAcks == 0 {
