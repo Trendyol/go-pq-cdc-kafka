@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"math"
@@ -8,8 +9,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/Trendyol/go-dcp-cdc-kafka/config"
-	"github.com/Trendyol/go-dcp/logger"
+	"github.com/Trendyol/go-pq-cdc-kafka/config"
+	"github.com/Trendyol/go-pq-cdc/logger"
+	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go/sasl"
 	"github.com/segmentio/kafka-go/sasl/scram"
 
@@ -63,13 +65,13 @@ func newTLSContent(
 
 	caCert, err := os.ReadFile(os.ExpandEnv(rootCAPath))
 	if err != nil {
-		logger.Log.Error("an error occurred while reading ca.pem file! Error: %s", err.Error())
+		logger.Error("read rootCA file", "error", err, "path", rootCAPath)
 		return nil, err
 	}
 
 	intCert, err := os.ReadFile(os.ExpandEnv(interCAPath))
 	if err != nil {
-		logger.Log.Error("an error occurred while reading int.pem file! Error: %s", err.Error())
+		logger.Error("read interCA file", "error", err, "path", interCAPath)
 		return nil, err
 	}
 
@@ -125,5 +127,13 @@ func NewClient(config *config.Connector) (Client, error) {
 		}
 	}
 	newClient.kafkaClient.Transport = newClient.transport
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	_, err := newClient.kafkaClient.Heartbeat(ctx, &kafka.HeartbeatRequest{Addr: addr})
+	cancel()
+	if err != nil {
+		return nil, errors.Wrap(err, "kafka heartbeat")
+	}
+
 	return newClient, nil
 }

@@ -1,38 +1,46 @@
 package producer
 
 import (
-	"github.com/Trendyol/go-dcp-cdc-kafka/config"
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
-	"github.com/Trendyol/go-dcp/helpers"
-	"github.com/Trendyol/go-pq-cdc/pq/replication"
-	gokafka "github.com/segmentio/kafka-go"
 	"time"
-)
 
-type Metric struct {
-	KafkaConnectorLatency int64
-	BatchProduceLatency   int64
-}
+	"github.com/Trendyol/go-pq-cdc-kafka/config"
+	"github.com/Trendyol/go-pq-cdc-kafka/internal/bytes"
+	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
+	"github.com/Trendyol/go-pq-cdc/pq/replication"
+	"github.com/pkg/errors"
+	gokafka "github.com/segmentio/kafka-go"
+)
 
 type Producer struct {
 	ProducerBatch *Batch
 }
 
-func NewProducer(kafkaClient kafka.Client,
+func NewProducer(
+	kafkaClient kafka.Client,
 	config *config.Connector,
-	sinkResponseHandler kafka.SinkResponseHandler,
+	responseHandler kafka.ResponseHandler,
 ) (Producer, error) {
 	writer := kafkaClient.Producer()
+
+	batchBytes, err := bytes.ParseSize(config.Kafka.ProducerBatchBytes)
+	if err != nil {
+		return Producer{}, errors.Wrap(err, "producerBatchBytes parse")
+	}
 
 	return Producer{
 		ProducerBatch: newBatch(
 			config.Kafka.ProducerBatchTickerDuration,
 			writer,
 			config.Kafka.ProducerBatchSize,
-			int64(helpers.ResolveUnionIntOrStringValue(config.Kafka.ProducerBatchBytes)),
-			sinkResponseHandler,
+			int64(batchBytes),
+			responseHandler,
+			config.CDC.Slot.Name,
 		),
 	}, nil
+}
+
+func (p *Producer) StartBatch() {
+	p.ProducerBatch.StartBatchTicker()
 }
 
 func (p *Producer) Produce(
@@ -44,15 +52,11 @@ func (p *Producer) Produce(
 	p.ProducerBatch.AddEvents(ctx, messages, eventTime, isLastChunk)
 }
 
-func (p *Producer) StartBatch() {
-	p.ProducerBatch.StartBatchTicker()
-}
-
 func (p *Producer) Close() error {
 	p.ProducerBatch.Close()
 	return p.ProducerBatch.Writer.Close()
 }
 
-func (p *Producer) GetMetric() *Metric {
+func (p *Producer) GetMetric() Metric {
 	return p.ProducerBatch.metric
 }

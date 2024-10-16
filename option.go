@@ -1,7 +1,9 @@
-package go_pq_cdc_kafka
+package cdc
 
 import (
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
+	"github.com/Trendyol/go-pq-cdc/logger"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Option func(Connector)
@@ -14,13 +16,13 @@ func (ops Options) Apply(c Connector) {
 	}
 }
 
-func WithResponseHandler(responseHandler kafka.SinkResponseHandler) Option {
+func WithResponseHandler(respHandler kafka.ResponseHandler) Option {
 	return func(c Connector) {
-		c.(*connector).responseHandler = responseHandler
+		c.(*connector).responseHandler = respHandler
 	}
 }
 
-/*func WithPrometheusMetrics(collectors []prometheus.Collector) Option {
+func WithPrometheusMetrics(collectors []prometheus.Collector) Option {
 	return func(c Connector) {
 		c.(*connector).metrics = collectors
 	}
@@ -31,4 +33,3 @@ func WithLogger(l logger.Logger) Option {
 		c.(*connector).cfg.CDC.Logger.Logger = l
 	}
 }
-*/

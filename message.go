@@ -1,8 +1,9 @@
-package go_pq_cdc_kafka
+package cdc
 
 import (
-	"github.com/Trendyol/go-pq-cdc/pq/message/format"
 	"time"
+
+	"github.com/Trendyol/go-pq-cdc/pq/message/format"
 )
 
 type Message struct {

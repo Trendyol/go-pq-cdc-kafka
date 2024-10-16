@@ -3,16 +3,33 @@ package main
 import (
 	"context"
 	"encoding/json"
-	cdc "github.com/Trendyol/go-dcp-cdc-kafka"
-	"github.com/Trendyol/go-dcp-cdc-kafka/config"
+	"log/slog"
+	"os"
+	"strconv"
+	"time"
+
+	cdc "github.com/Trendyol/go-pq-cdc-kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/config"
 	cdcconfig "github.com/Trendyol/go-pq-cdc/config"
 	"github.com/Trendyol/go-pq-cdc/pq/publication"
 	"github.com/Trendyol/go-pq-cdc/pq/slot"
 	gokafka "github.com/segmentio/kafka-go"
-	"log/slog"
-	"os"
-	"strconv"
 )
+
+/*
+	psql "postgres://cdc_user:cdc_pass@127.0.0.1/cdc_db?replication=database"
+
+	CREATE TABLE users (
+	 id serial PRIMARY KEY,
+	 name text NOT NULL,
+	 created_on timestamptz
+	);
+
+	INSERT INTO users (name)
+	SELECT
+		'Oyleli' || i
+	FROM generate_series(1, 100) AS i;
+*/
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -46,10 +63,15 @@ func main() {
 			Metric: cdcconfig.MetricConfig{
 				Port: 8081,
 			},
+			Logger: cdcconfig.LoggerConfig{
+				LogLevel: slog.LevelInfo,
+			},
 		},
 		Kafka: config.Kafka{
-			CollectionTopicMapping: map[string]string{"public.users": "users.0"},
-			Brokers:                []string{"localhost:19092"},
+			TableTopicMapping:           map[string]string{"public.users": "users.0"},
+			Brokers:                     []string{"localhost:19092"},
+			AllowAutoTopicCreation:      true,
+			ProducerBatchTickerDuration: time.Millisecond * 200,
 		},
 	}
 
@@ -64,6 +86,7 @@ func main() {
 }
 
 func Handler(msg *cdc.Message) []gokafka.Message {
+	slog.Info("change captured", "message", msg)
 	if msg.Type.IsUpdate() || msg.Type.IsInsert() {
 		msg.NewData["operation"] = msg.Type
 		newData, _ := json.Marshal(msg.NewData)

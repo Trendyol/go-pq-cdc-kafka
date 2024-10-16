@@ -1,19 +1,20 @@
-package go_pq_cdc_kafka
+package cdc
 
 import (
 	"context"
 	"fmt"
-	"github.com/Trendyol/go-dcp-cdc-kafka/config"
-	"github.com/Trendyol/go-dcp-cdc-kafka/internal/slices"
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka"
-	"github.com/Trendyol/go-dcp-cdc-kafka/kafka/producer"
+
 	cdc "github.com/Trendyol/go-pq-cdc"
+	"github.com/Trendyol/go-pq-cdc-kafka/config"
+	"github.com/Trendyol/go-pq-cdc-kafka/internal/slices"
+	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/kafka/producer"
 	"github.com/Trendyol/go-pq-cdc/logger"
 	"github.com/Trendyol/go-pq-cdc/pq/message/format"
 	"github.com/Trendyol/go-pq-cdc/pq/replication"
+	"github.com/Trendyol/go-pq-cdc/pq/timescaledb"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	gokafka "github.com/segmentio/kafka-go"
 )
 
 type Connector interface {
@@ -24,9 +25,9 @@ type Connector interface {
 type connector struct {
 	producer        producer.Producer
 	handler         Handler
-	config          *config.Connector
+	cfg             *config.Connector
 	cdc             cdc.Connector
-	responseHandler kafka.SinkResponseHandler
+	responseHandler kafka.ResponseHandler
 	client          kafka.Client
 	metrics         []prometheus.Collector
 }
@@ -35,31 +36,32 @@ func NewConnector(ctx context.Context, config config.Connector, handler Handler,
 	config.SetDefault()
 
 	kafkaConnector := &connector{
-		config:  &config,
+		cfg:     &config,
 		handler: handler,
 	}
 
 	Options(options).Apply(kafkaConnector)
 
-	pqCDC, err := cdc.NewConnector(ctx, kafkaConnector.config.CDC, kafkaConnector.listener)
+	pqCDC, err := cdc.NewConnector(ctx, kafkaConnector.cfg.CDC, kafkaConnector.listener)
 	if err != nil {
 		return nil, err
 	}
 	kafkaConnector.cdc = pqCDC
-	kafkaConnector.config.CDC = *pqCDC.GetConfig()
+	kafkaConnector.cfg.CDC = *pqCDC.GetConfig()
 
-	kafkaClient, err := kafka.NewClient(kafkaConnector.config)
+	kafkaClient, err := kafka.NewClient(kafkaConnector.cfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "elasticsearch new client")
+		return nil, errors.Wrap(err, "kafka new client")
 	}
 	kafkaConnector.client = kafkaClient
 
-	kafkaConnector.producer, err = producer.NewProducer(kafkaClient, kafkaConnector.config, kafkaConnector.responseHandler)
+	kafkaConnector.producer, err = producer.NewProducer(kafkaClient, kafkaConnector.cfg, kafkaConnector.responseHandler)
 	if err != nil {
 		logger.Error("kafka new producer", "error", err)
 		return nil, err
 	}
 
+	pqCDC.SetMetricCollectors(kafkaConnector.producer.GetMetric().PrometheusCollectors()...)
 	pqCDC.SetMetricCollectors(kafkaConnector.metrics...)
 
 	return kafkaConnector, nil
@@ -97,6 +99,14 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 		return
 	}
 
+	mappedTopicName, ok := c.processMessage(msg)
+	if !ok {
+		if err := ctx.Ack(); err != nil {
+			logger.Error("ack", "error", err)
+		}
+		return
+	}
+
 	events := c.handler(msg)
 	if len(events) == 0 {
 		if err := ctx.Ack(); err != nil {
@@ -106,12 +116,12 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 	}
 
 	for i := range events {
-		events[i].Topic = getTopicName(c.config, msg.TableNamespace, msg.TableName, events[i].Topic)
+		events[i].Topic = getTopicName(mappedTopicName, events[i].Topic)
 	}
 
-	batchSizeLimit := c.config.Kafka.ProducerBatchSize
+	batchSizeLimit := c.cfg.Kafka.ProducerBatchSize
 	if len(events) > batchSizeLimit {
-		chunks := slices.ChunkWithSize[gokafka.Message](events, batchSizeLimit)
+		chunks := slices.ChunkWithSize(events, batchSizeLimit)
 		lastChunkIndex := len(chunks) - 1
 		for idx, chunk := range chunks {
 			c.producer.Produce(ctx, msg.EventTime, chunk, idx == lastChunkIndex)
@@ -121,15 +131,34 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 	}
 }
 
-func getTopicName(config *config.Connector, tableNamespace, tableName, actionIndexName string) string {
-	if actionIndexName != "" {
-		return actionIndexName
+func getTopicName(defaultTopic, messageTopic string) string {
+	if messageTopic != "" {
+		return messageTopic
 	}
 
-	indexName := config.Kafka.CollectionTopicMapping[fmt.Sprintf("%s.%s", tableNamespace, tableName)]
-	if indexName == "" {
-		panic(fmt.Sprintf("there is no index mapping for table: %s.%s on your configuration", tableNamespace, tableName))
+	return defaultTopic
+}
+
+func (c *connector) processMessage(msg *Message) (string, bool) {
+	if len(c.cfg.Kafka.TableTopicMapping) == 0 {
+		return "", true
 	}
 
-	return indexName
+	fullTableName := fmt.Sprintf("%s.%s", msg.TableNamespace, msg.TableName)
+
+	if name, exists := c.cfg.Kafka.TableTopicMapping[fullTableName]; exists {
+		return name, true
+	}
+
+	t, ok := timescaledb.HyperTables.Load(fullTableName)
+	if !ok {
+		return "", false
+	}
+
+	name, exists := c.cfg.Kafka.TableTopicMapping[t.(string)]
+	if exists {
+		return name, true
+	}
+
+	return "", false
 }

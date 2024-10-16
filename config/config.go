@@ -1,7 +1,6 @@
 package config
 
 import (
-	"github.com/Trendyol/go-dcp-cdc-kafka/internal/bytes"
 	"math"
 	"strconv"
 	"time"
@@ -11,8 +10,8 @@ import (
 )
 
 type Kafka struct {
-	ProducerBatchBytes          any               `yaml:"producerBatchBytes"`
-	CollectionTopicMapping      map[string]string `yaml:"collectionTopicMapping"`
+	ProducerBatchBytes          string            `yaml:"producerBatchBytes"`
+	TableTopicMapping           map[string]string `yaml:"tableTopicMapping"`
 	InterCAPath                 string            `yaml:"interCAPath"`
 	ScramUsername               string            `yaml:"scramUsername"`
 	ScramPassword               string            `yaml:"scramPassword"`
@@ -34,8 +33,8 @@ type Kafka struct {
 }
 
 type Connector struct {
-	Kafka Kafka `yaml:"kafka" mapstructure:"kafka"`
 	CDC   config.Config
+	Kafka Kafka `yaml:"kafka" mapstructure:"kafka"`
 }
 
 func (k *Kafka) GetBalancer() kafka.Balancer {
@@ -81,8 +80,8 @@ func (c *Connector) SetDefault() {
 		c.Kafka.ProducerBatchSize = 2000
 	}
 
-	if c.Kafka.ProducerBatchBytes == nil {
-		c.Kafka.ProducerBatchBytes, _ = bytes.ParseSize("10mb") // todo: return error
+	if c.Kafka.ProducerBatchBytes == "" {
+		c.Kafka.ProducerBatchBytes = "10mb"
 	}
 
 	if c.Kafka.RequiredAcks == 0 {
