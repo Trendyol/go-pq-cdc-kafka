@@ -46,7 +46,7 @@ ALTER TABLE users REPLICA IDENTITY FULL;
 
 - Create a user with minimal permissions needed for CDC operations:
 ```sql
-CREATE USER es_cdc_user WITH REPLICATION LOGIN PASSWORD 'cdc_pass';
+CREATE USER cdc_user WITH REPLICATION LOGIN PASSWORD 'cdc_pass';
 ```
 
 ## Configuration
