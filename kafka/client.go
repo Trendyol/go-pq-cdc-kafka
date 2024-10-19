@@ -6,11 +6,9 @@ import (
 	"crypto/x509"
 	"math"
 	"net"
-	"os"
 	"time"
 
 	"github.com/Trendyol/go-pq-cdc-kafka/config"
-	"github.com/Trendyol/go-pq-cdc/logger"
 	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go/sasl"
 	"github.com/segmentio/kafka-go/sasl/scram"
@@ -53,31 +51,19 @@ func (c *client) Producer() *kafka.Writer {
 }
 
 func newTLSContent(
-	scramUsername,
-	scramPassword,
-	rootCAPath,
-	interCAPath string,
+	scramUsername string,
+	scramPassword string,
+	rootCA []byte,
+	interCA []byte,
 ) (*tlsContent, error) {
 	mechanism, err := scram.Mechanism(scram.SHA512, scramUsername, scramPassword)
 	if err != nil {
 		return nil, err
 	}
 
-	caCert, err := os.ReadFile(os.ExpandEnv(rootCAPath))
-	if err != nil {
-		logger.Error("read rootCA file", "error", err, "path", rootCAPath)
-		return nil, err
-	}
-
-	intCert, err := os.ReadFile(os.ExpandEnv(interCAPath))
-	if err != nil {
-		logger.Error("read interCA file", "error", err, "path", interCAPath)
-		return nil, err
-	}
-
 	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
-	caCertPool.AppendCertsFromPEM(intCert)
+	caCertPool.AppendCertsFromPEM(rootCA)
+	caCertPool.AppendCertsFromPEM(interCA)
 
 	return &tlsContent{
 		config: &tls.Config{
@@ -109,8 +95,8 @@ func NewClient(config *config.Connector) (Client, error) {
 		tlsContent, err := newTLSContent(
 			config.Kafka.ScramUsername,
 			config.Kafka.ScramPassword,
-			config.Kafka.RootCAPath,
-			config.Kafka.InterCAPath,
+			config.Kafka.RootCA,
+			config.Kafka.InterCA,
 		)
 		if err != nil {
 			return nil, err

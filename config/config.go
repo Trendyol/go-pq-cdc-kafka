@@ -12,10 +12,10 @@ import (
 type Kafka struct {
 	ProducerBatchBytes          string            `yaml:"producerBatchBytes"`
 	TableTopicMapping           map[string]string `yaml:"tableTopicMapping"`
-	InterCAPath                 string            `yaml:"interCAPath"`
+	InterCA                     []byte            `yaml:"interCA"`
 	ScramUsername               string            `yaml:"scramUsername"`
 	ScramPassword               string            `yaml:"scramPassword"`
-	RootCAPath                  string            `yaml:"rootCAPath"`
+	RootCA                      []byte            `yaml:"rootCA"`
 	ClientID                    string            `yaml:"clientID"`
 	Balancer                    string            `yaml:"balancer"`
 	Brokers                     []string          `yaml:"brokers"`
