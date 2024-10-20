@@ -19,6 +19,7 @@ import (
 
 type Connector interface {
 	Start(ctx context.Context)
+	WaitUntilReady(ctx context.Context) error
 	Close()
 }
 
@@ -30,6 +31,7 @@ type connector struct {
 	responseHandler kafka.ResponseHandler
 	client          kafka.Client
 	metrics         []prometheus.Collector
+	readyCh         chan struct{}
 }
 
 func NewConnector(ctx context.Context, config config.Connector, handler Handler, options ...Option) (Connector, error) {
@@ -38,6 +40,7 @@ func NewConnector(ctx context.Context, config config.Connector, handler Handler,
 	kafkaConnector := &connector{
 		cfg:     &config,
 		handler: handler,
+		readyCh: make(chan struct{}, 1),
 	}
 
 	Options(options).Apply(kafkaConnector)
@@ -75,11 +78,25 @@ func (c *connector) Start(ctx context.Context) {
 		}
 		logger.Info("bulk process started")
 		c.producer.StartBatch()
+		c.readyCh <- struct{}{}
 	}()
 	c.cdc.Start(ctx)
 }
 
+func (c *connector) WaitUntilReady(ctx context.Context) error {
+	select {
+	case <-c.readyCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (c *connector) Close() {
+	if !isClosed(c.readyCh) {
+		close(c.readyCh)
+	}
+
 	c.cdc.Close()
 	if err := c.producer.Close(); err != nil {
 		logger.Error("kafka producer close", "error", err)
@@ -161,4 +178,14 @@ func (c *connector) processMessage(msg *Message) (string, bool) {
 	}
 
 	return "", false
+}
+
+func isClosed[T any](ch <-chan T) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+	}
+
+	return false
 }
