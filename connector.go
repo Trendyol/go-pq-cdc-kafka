@@ -24,14 +24,14 @@ type Connector interface {
 }
 
 type connector struct {
-	producer        producer.Producer
-	handler         Handler
-	cfg             *config.Connector
 	cdc             cdc.Connector
 	responseHandler kafka.ResponseHandler
 	client          kafka.Client
-	metrics         []prometheus.Collector
+	producer        producer.Producer
+	handler         Handler
+	cfg             *config.Connector
 	readyCh         chan struct{}
+	metrics         []prometheus.Collector
 }
 
 func NewConnector(ctx context.Context, config config.Connector, handler Handler, options ...Option) (Connector, error) {
