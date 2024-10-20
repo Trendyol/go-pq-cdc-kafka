@@ -25,7 +25,20 @@ import (
 	 created_on timestamptz
 	);
 
+	CREATE TABLE books (
+	 id serial PRIMARY KEY,
+	 author text NOT NULL,
+	 created_on timestamptz
+	);
+
+    // after start cdc (because need to create publication and slot)
+
 	INSERT INTO users (name)
+	SELECT
+		'Oyleli' || i
+	FROM generate_series(1, 100) AS i;
+
+	INSERT INTO books (author)
 	SELECT
 		'Oyleli' || i
 	FROM generate_series(1, 100) AS i;
@@ -50,10 +63,16 @@ func main() {
 					publication.OperationTruncate,
 					publication.OperationUpdate,
 				},
-				Tables: publication.Tables{publication.Table{
-					Name:            "users",
-					ReplicaIdentity: publication.ReplicaIdentityFull,
-				}},
+				Tables: publication.Tables{
+					publication.Table{
+						Name:            "users",
+						ReplicaIdentity: publication.ReplicaIdentityFull,
+					},
+					publication.Table{
+						Name:            "books",
+						ReplicaIdentity: publication.ReplicaIdentityFull,
+					},
+				},
 			},
 			Slot: slot.Config{
 				CreateIfNotExists:           true,
@@ -68,7 +87,10 @@ func main() {
 			},
 		},
 		Kafka: config.Kafka{
-			TableTopicMapping:           map[string]string{"public.users": "users.0"},
+			TableTopicMapping: map[string]string{
+				"public.users": "users.0",
+				"public.books": "books.0",
+			},
 			Brokers:                     []string{"localhost:19092"},
 			AllowAutoTopicCreation:      true,
 			ProducerBatchTickerDuration: time.Millisecond * 200,
