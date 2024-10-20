@@ -2,20 +2,44 @@
 
 Kafka connector for [go-pq-cdc](https://github.com/Trendyol/go-pq-cdc).
 
-go-pq-cdc-kafka streams documents from PostgreSql and writes to Kafka topic in near real-time.
+`go-pq-cdc-kafka` is a high-performance tool designed to replicate PostgreSQL data to Kafka using PostgreSQL's replication protocol. It provides an efficient alternative to Debezium, particularly in resource-constrained environments.
 
-### Contents
+## Key Features
 
-* [Usage](#usage)
-* [Examples](#examples)
-* [Availability](#availability)
-* [Configuration](#configuration)
-* [API](#api)
-* [Exposed Metrics](#exposed-metrics)
-* [Compatibility](#compatibility)
-* [Breaking Changes](#breaking-changes)
+- **Optimized for Speed and Efficiency**: Minimal resource consumption and faster processing, designed to handle high-throughput data replication.
+- **Real-Time Data Streaming**: Streams data directly from PostgreSQL to Kafka, ensuring up-to-date synchronization across systems.
+- **Automatic Failover**: In the event of a failure, `go-pq-cdc-kafka` can quickly recover and resume data replication.
+- **Concurrency**: Built with Go's concurrency model (goroutines and channels), ensuring lightweight and highly performant parallel operations.
 
-### Usage
+## Why Choose go-pq-cdc-kafka Over Debezium?
+
+### [Debezium vs go-pq-cdc-kafka benchmark](./benchmark)
+
+`go-pq-cdc-kafka` significantly outperforms Debezium in terms of speed and resource efficiency, particularly for PostgreSQL databases. Here’s a comparison:
+
+### Benchmark Results
+
+|                      | go-pq-cdc-kafka | Debezium     |
+|----------------------|-----------------|--------------|
+| **Row Count**         | 10 million      | 10 million   |
+| **Elapsed Time**      | 2.5 minutes     | 21 minutes   |
+| **CPU Usage (Max)**   | 44%             | 181%         |
+| **Memory Usage (Max)**| 130 MB          | 1.07 GB      |
+| **Received Traffic**  | 4.36 MiB/s      | 7.97 MiB/s   |
+| **Sent Traffic**      | 5.96 MiB/s      | 6.27 MiB/s   |
+
+### Availability and Failover
+
+The `go-pq-cdc-kafka` ensures high availability with passive/active modes for PostgreSQL Change Data Capture (CDC).
+
+- **Active Mode**: When the PostgreSQL replication slot is active, `go-pq-cdc-kafka` continuously monitors changes and streams them to Kafka.
+  
+- **Passive Mode**: If the replication slot becomes inactive, it automatically captures the slot and resumes data streaming. Additionally, other deployments monitor the slot’s status, ensuring redundancy and failover capabilities.
+
+This architecture guarantees minimal downtime and continuous data synchronization, even in the event of failure. Additionally, Go’s faster cold starts provide quicker recovery times compared to Debezium, further minimizing potential downtime.
+
+
+## Usage
 
 > ### ⚠️ For production usage check the [production tutorial](./docs/production_tutorial.md) doc
 
@@ -130,25 +154,11 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 }
 ```
 
-### Examples
+## Examples
 
 * [Simple](./example/simple)
 
-### Availability
-
-The go-pq-cdc operates in passive/active modes for PostgreSQL change data capture (CDC). Here's how it ensures
-availability:
-
-* **Active Mode:** When the PostgreSQL replication slot (slot.name) is active, go-pq-cdc continuously monitors changes
-  and streams them to downstream systems as configured.
-* **Passive Mode:** If the PostgreSQL replication slot becomes inactive (detected via slot.slotActivityCheckerInterval),
-  go-pq-cdc automatically captures the slot again and resumes data capturing. Other deployments also monitor slot
-  activity,
-  and when detected as inactive, they initiate data capturing.
-
-This setup ensures continuous data synchronization and minimal downtime in capturing database changes.
-
-### Configuration
+## Configuration
 
 | Variable                                    |       Type        | Required | Default | Description                                                                                                     | Options                                                                                                                                                                  |
 | ------------------------------------------- | :---------------: | :------: | :-----: | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -190,13 +200,15 @@ This setup ensures continuous data synchronization and minimal downtime in captu
 | `kafka.clientID`                            |      string       |    no    |    -    | Unique identifier that the transport communicates to the brokers.                                               | For more detail, check [docs](https://pkg.go.dev/github.com/segmentio/kafka-go#Transport.ClientID).                                                                      |
 | `kafka.allowAutoTopicCreation`              |       bool        |    no    |  false  | Create topic if missing.                                                                                        | For more detail, check [docs](https://pkg.go.dev/github.com/segmentio/kafka-go#Writer.AllowAutoTopicCreation).                                                           |
 
+## API
+
 | Endpoint             | Description                                                                               |
 |----------------------|-------------------------------------------------------------------------------------------|
 | `GET /status`        | Returns a 200 OK status if the client is able to ping the PostgreSQL server successfully. |
 | `GET /metrics`       | Prometheus metric endpoint.                                                               |
 | `GET /debug/pprof/*` | (Only for `debugMode=true`) [pprof](https://pkg.go.dev/net/http/pprof)                    |
 
-### Exposed Metrics
+## Exposed Metrics
 
 The client collects relevant metrics related to PostgreSQL change data capture (CDC) and makes them available at
 the `/metrics` endpoint.
@@ -209,15 +221,16 @@ the `/metrics` endpoint.
 You can also use all cdc related metrics explained [here](https://github.com/Trendyol/go-pq-cdc#exposed-metrics). 
 All cdc related metrics are automatically injected. It means you don't need to do anything.
 
-### Compatibility
+## Compatibility
 
 | go-pq-cdc-kafka Version | Minimum PostgreSQL Server Version |
 |-------------------|-----------------------------------|
 | 0.0.0 or higher   | 14                                |
 
-### Breaking Changes
+## Breaking Changes
 
 | Date taking effect | Version | Change | How to check |
 |--------------------|---------|--------|--------------| 
 | -                  | -       | -      | -            |
+
 
