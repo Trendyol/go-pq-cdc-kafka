@@ -3,6 +3,7 @@ package producer
 import (
 	"os"
 
+	cdc "github.com/Trendyol/go-pq-cdc"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -12,16 +13,25 @@ type Metric interface {
 	SetProcessLatency(latency int64)
 	SetBulkRequestProcessLatency(latency int64)
 	PrometheusCollectors() []prometheus.Collector
+	IncrementSuccessOp(topicName string)
+	IncrementErrOp(topicName string)
 }
+
+var hostname, _ = os.Hostname()
 
 type metric struct {
+	pqCDC                       cdc.Connector
 	processLatencyMs            prometheus.Gauge
 	bulkRequestProcessLatencyMs prometheus.Gauge
+	totalSuccess                map[string]prometheus.Counter
+	totalErr                    map[string]prometheus.Counter
+	slotName                    string
 }
 
-func NewMetric(slotName string) Metric {
-	hostname, _ := os.Hostname()
+func NewMetric(pqCDC cdc.Connector, slotName string) Metric {
 	return &metric{
+		pqCDC:    pqCDC,
+		slotName: slotName,
 		processLatencyMs: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: "process_latency",
@@ -42,6 +52,8 @@ func NewMetric(slotName string) Metric {
 				"slot_name": slotName,
 			},
 		}),
+		totalSuccess: make(map[string]prometheus.Counter),
+		totalErr:     make(map[string]prometheus.Counter),
 	}
 }
 
@@ -58,4 +70,42 @@ func (m *metric) SetProcessLatency(latency int64) {
 
 func (m *metric) SetBulkRequestProcessLatency(latency int64) {
 	m.bulkRequestProcessLatencyMs.Set(float64(latency))
+}
+
+func (m *metric) IncrementSuccessOp(topicName string) {
+	if _, exists := m.totalSuccess[topicName]; !exists {
+		m.totalSuccess[topicName] = prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: "write",
+			Name:      "total",
+			Help:      "total number of successful in write operation to kafka",
+			ConstLabels: prometheus.Labels{
+				"slot_name":  m.slotName,
+				"topic_name": topicName,
+				"host":       hostname,
+			},
+		})
+		m.pqCDC.SetMetricCollectors(m.totalSuccess[topicName])
+	}
+
+	m.totalSuccess[topicName].Add(1)
+}
+
+func (m *metric) IncrementErrOp(topicName string) {
+	if _, exists := m.totalErr[topicName]; !exists {
+		m.totalErr[topicName] = prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: "err",
+			Name:      "total",
+			Help:      "total number of error in write operation to kafka",
+			ConstLabels: prometheus.Labels{
+				"slot_name":  m.slotName,
+				"topic_name": topicName,
+				"host":       hostname,
+			},
+		})
+		m.pqCDC.SetMetricCollectors(m.totalErr[topicName])
+	}
+
+	m.totalErr[topicName].Add(1)
 }

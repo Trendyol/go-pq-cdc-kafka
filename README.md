@@ -213,10 +213,12 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 The client collects relevant metrics related to PostgreSQL change data capture (CDC) and makes them available at
 the `/metrics` endpoint.
 
-| Metric Name                                                  | Description                                                                                           | Labels          | Value Type |
-|--------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|-----------------|------------|
-| go_pq_cdc_kafka_process_latency_current              | The latest kafka connector process latency in nanoseconds.                                    | slot_name, host | Gauge      |
-| go_pq_cdc_kafka_bulk_request_process_latency_current | The latest kafka connector bulk request process latency in nanoseconds.                       | slot_name, host | Gauge      |
+| Metric Name                                                  | Description                                                                                           | Labels                      | Value Type   |
+|--------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|-----------------------------|--------------|
+| go_pq_cdc_kafka_process_latency_current                      | The latest kafka connector process latency in nanoseconds.                                            | slot_name, host             | Gauge        |
+| go_pq_cdc_kafka_bulk_request_process_latency_current         | The latest kafka connector bulk request process latency in nanoseconds.                               | slot_name, host             | Gauge        |
+| go_pq_cdc_kafka_write_total                                  | The total number of successful in write operation to kafka.                                           | slot_name, host, topic_name | Counter      | 
+| go_pq_cdc_kafka_err_total                                    | The total number of unsuccessful in write operation to kafka.                                         | slot_name, host, topic_name | Counter      | 
 
 You can also use all cdc related metrics explained [here](https://github.com/Trendyol/go-pq-cdc#exposed-metrics). 
 All cdc related metrics are automatically injected. It means you don't need to do anything.

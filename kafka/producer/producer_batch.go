@@ -2,13 +2,10 @@ package producer
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io"
 	"sync"
-	"syscall"
 	"time"
 
+	cdc "github.com/Trendyol/go-pq-cdc"
 	"github.com/Trendyol/go-pq-cdc/logger"
 	"github.com/Trendyol/go-pq-cdc/pq/replication"
 
@@ -36,11 +33,12 @@ func newBatch(
 	batchBytes int64,
 	responseHandler kafka.ResponseHandler,
 	slotName string,
+	pqCDC cdc.Connector,
 ) *Batch {
 	batch := &Batch{
 		batchTickerDuration: batchTime,
 		batchTicker:         time.NewTicker(batchTime),
-		metric:              NewMetric(slotName),
+		metric:              NewMetric(pqCDC, slotName),
 		messages:            make([]gokafka.Message, 0, batchLimit),
 		Writer:              writer,
 		batchLimit:          batchLimit,
@@ -93,15 +91,6 @@ func (b *Batch) FlushMessages() {
 		startedTime := time.Now()
 		err := b.Writer.WriteMessages(context.Background(), b.messages...)
 
-		if err != nil && b.responseHandler == nil {
-			if isFatalError(err) {
-				logger.Error("permanent error on kafka while flush messages", "error", err)
-				panic(fmt.Errorf("permanent error on Kafka side %w", err))
-			}
-			logger.Error("batch producer flush", "error", err)
-			return
-		}
-
 		b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
 
 		if b.responseHandler != nil {
@@ -125,22 +114,6 @@ func (b *Batch) FlushMessages() {
 	}
 }
 
-func isFatalError(err error) bool {
-	var e gokafka.Error
-	ok := errors.As(err, &e)
-	if ok && errors.Is(err, gokafka.UnknownTopicOrPartition) {
-		return true
-	}
-	if (ok && e.Temporary()) ||
-		errors.Is(err, io.ErrUnexpectedEOF) ||
-		errors.Is(err, syscall.ECONNREFUSED) ||
-		errors.Is(err, syscall.ECONNRESET) ||
-		errors.Is(err, syscall.EPIPE) {
-		return false
-	}
-	return true
-}
-
 func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors) {
 	for i := range writeErrors {
 		if writeErrors[i] != nil {
@@ -159,6 +132,7 @@ func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors) {
 
 func (b *Batch) handleResponseError(err error) {
 	for _, msg := range b.messages {
+		b.metric.IncrementErrOp(msg.Topic)
 		b.responseHandler.OnError(&kafka.ResponseHandlerContext{
 			Message: &msg,
 			Err:     err,
@@ -168,6 +142,7 @@ func (b *Batch) handleResponseError(err error) {
 
 func (b *Batch) handleResponseSuccess() {
 	for _, msg := range b.messages {
+		b.metric.IncrementSuccessOp(msg.Topic)
 		b.responseHandler.OnSuccess(&kafka.ResponseHandlerContext{
 			Message: &msg,
 			Err:     nil,

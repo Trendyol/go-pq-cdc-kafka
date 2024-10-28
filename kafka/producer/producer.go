@@ -3,6 +3,7 @@ package producer
 import (
 	"time"
 
+	cdc "github.com/Trendyol/go-pq-cdc"
 	"github.com/Trendyol/go-pq-cdc-kafka/config"
 	"github.com/Trendyol/go-pq-cdc-kafka/internal/bytes"
 	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
@@ -19,6 +20,7 @@ func NewProducer(
 	kafkaClient kafka.Client,
 	config *config.Connector,
 	responseHandler kafka.ResponseHandler,
+	pqCDC cdc.Connector,
 ) (Producer, error) {
 	writer := kafkaClient.Producer()
 
@@ -35,6 +37,7 @@ func NewProducer(
 			int64(batchBytes),
 			responseHandler,
 			config.CDC.Slot.Name,
+			pqCDC,
 		),
 	}, nil
 }

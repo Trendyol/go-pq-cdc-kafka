@@ -58,7 +58,11 @@ func NewConnector(ctx context.Context, config config.Connector, handler Handler,
 	}
 	kafkaConnector.client = kafkaClient
 
-	kafkaConnector.producer, err = producer.NewProducer(kafkaClient, kafkaConnector.cfg, kafkaConnector.responseHandler)
+	if kafkaConnector.responseHandler == nil {
+		kafkaConnector.responseHandler = &kafka.DefaultResponseHandler{}
+	}
+
+	kafkaConnector.producer, err = producer.NewProducer(kafkaClient, kafkaConnector.cfg, kafkaConnector.responseHandler, pqCDC)
 	if err != nil {
 		logger.Error("kafka new producer", "error", err)
 		return nil, err
