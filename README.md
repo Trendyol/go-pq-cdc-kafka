@@ -1,3 +1,5 @@
+
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Trendyol/go-pq-cdc-kafka/badge)](https://scorecard.dev/viewer/?uri=github.com/Trendyol/go-pq-cdc-kafka)
 # go-pq-cdc-kafka [![Go Reference](https://pkg.go.dev/badge/github.com/Trendyol/go-dcp.svg)](https://pkg.go.dev/github.com/Trendyol/go-pq-cdc-kafka) [![Go Report Card](https://goreportcard.com/badge/github.com/Trendyol/go-pq-cdc-kafka)](https://goreportcard.com/report/github.com/Trendyol/go-pq-cdc-kafka)
 
 Kafka connector for [go-pq-cdc](https://github.com/Trendyol/go-pq-cdc).
