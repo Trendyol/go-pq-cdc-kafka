@@ -101,11 +101,9 @@ func (b *Batch) FlushMessages() {
 				b.handleWriteError(e)
 			case gokafka.MessageTooLargeError:
 				b.handleMessageTooLargeError(e)
-				return
 			default:
 				b.handleResponseError(e)
 				logger.Error("batch producer flush", "error", err)
-				return
 			}
 		}
 		b.messages = b.messages[:0]
