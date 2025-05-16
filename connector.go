@@ -165,30 +165,6 @@ func getTopicName(defaultTopic, messageTopic string) string {
 	return defaultTopic
 }
 
-func (c *connector) processMessage(msg *Message) (string, bool) {
-	if len(c.cfg.Kafka.TableTopicMapping) == 0 {
-		return "", true
-	}
-
-	fullTableName := fmt.Sprintf("%s.%s", msg.TableNamespace, msg.TableName)
-
-	if name, exists := c.cfg.Kafka.TableTopicMapping[fullTableName]; exists {
-		return name, true
-	}
-
-	t, ok := timescaledb.HyperTables.Load(fullTableName)
-	if !ok {
-		return "", false
-	}
-
-	name, exists := c.cfg.Kafka.TableTopicMapping[t.(string)]
-	if exists {
-		return name, true
-	}
-
-	return "", false
-}
-
 func (c *connector) resolveTableToTopicName(fullTableName, tableNamespace, tableName string) string {
 	tableTopicMapping := c.cfg.Kafka.TableTopicMapping
 	if len(tableTopicMapping) == 0 {
