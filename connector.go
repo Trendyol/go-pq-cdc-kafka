@@ -3,6 +3,8 @@ package cdc
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 
 	cdc "github.com/Trendyol/go-pq-cdc"
 	"github.com/Trendyol/go-pq-cdc-kafka/config"
@@ -24,6 +26,7 @@ type Connector interface {
 }
 
 type connector struct {
+	partitionCache  sync.Map
 	cdc             cdc.Connector
 	responseHandler kafka.ResponseHandler
 	client          kafka.Client
@@ -120,8 +123,10 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 		return
 	}
 
-	mappedTopicName, ok := c.processMessage(msg)
-	if !ok {
+	fullTableName := c.getFullTableName(msg.TableNamespace, msg.TableName)
+
+	topicName := c.resolveTableToTopicName(fullTableName, msg.TableNamespace, msg.TableName)
+	if topicName == "" {
 		if err := ctx.Ack(); err != nil {
 			logger.Error("ack", "error", err)
 		}
@@ -137,7 +142,7 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 	}
 
 	for i := range events {
-		events[i].Topic = getTopicName(mappedTopicName, events[i].Topic)
+		events[i].Topic = getTopicName(topicName, events[i].Topic)
 	}
 
 	batchSizeLimit := c.cfg.Kafka.ProducerBatchSize
@@ -182,6 +187,83 @@ func (c *connector) processMessage(msg *Message) (string, bool) {
 	}
 
 	return "", false
+}
+
+func (c *connector) resolveTableToTopicName(fullTableName, tableNamespace, tableName string) string {
+	tableTopicMapping := c.cfg.Kafka.TableTopicMapping
+	if len(tableTopicMapping) == 0 {
+		return ""
+	}
+
+	if topicName, exists := tableTopicMapping[fullTableName]; exists {
+		return topicName
+	}
+
+	if t, ok := timescaledb.HyperTables.Load(fullTableName); ok {
+		parentName := t.(string)
+		if topicName, exists := tableTopicMapping[parentName]; exists {
+			return topicName
+		}
+	}
+
+	parentTableName := c.getParentTableName(fullTableName, tableNamespace, tableName)
+	if parentTableName != "" {
+		if topicName, exists := tableTopicMapping[parentTableName]; exists {
+			return topicName
+		}
+	}
+
+	return ""
+}
+
+func (c *connector) getParentTableName(fullTableName, tableNamespace, tableName string) string {
+	if cachedValue, found := c.partitionCache.Load(fullTableName); found {
+		parentName, ok := cachedValue.(string)
+		if !ok {
+			logger.Error("invalid cache value type for table", "table", fullTableName)
+			return ""
+		}
+
+		if parentName != "" {
+			logger.Debug("matched partition table to parent from cache",
+				"partition", fullTableName,
+				"parent", parentName)
+		}
+		return parentName
+	}
+
+	parentTableName := c.findParentTable(tableNamespace, tableName)
+	c.partitionCache.Store(fullTableName, parentTableName)
+
+	if parentTableName != "" {
+		logger.Debug("matched partition table to parent",
+			"partition", fullTableName,
+			"parent", parentTableName)
+	}
+
+	return parentTableName
+}
+
+func (c *connector) findParentTable(tableNamespace, tableName string) string {
+	tableParts := strings.Split(tableName, "_")
+	if len(tableParts) <= 1 {
+		return ""
+	}
+
+	for i := 1; i < len(tableParts); i++ {
+		parentNameCandidate := strings.Join(tableParts[:i], "_")
+		fullParentName := c.getFullTableName(tableNamespace, parentNameCandidate)
+
+		if _, exists := c.cfg.Kafka.TableTopicMapping[fullParentName]; exists {
+			return fullParentName
+		}
+	}
+
+	return ""
+}
+
+func (c *connector) getFullTableName(tableNamespace, tableName string) string {
+	return fmt.Sprintf("%s.%s", tableNamespace, tableName)
 }
 
 func isClosed[T any](ch <-chan T) bool {
