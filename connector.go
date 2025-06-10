@@ -125,8 +125,8 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 
 	fullTableName := c.getFullTableName(msg.TableNamespace, msg.TableName)
 
-	topicName := c.resolveTableToTopicName(fullTableName, msg.TableNamespace, msg.TableName)
-	if topicName == "" {
+	topicName, ok := c.resolveTableToTopicName(fullTableName, msg.TableNamespace, msg.TableName)
+	if !ok {
 		if err := ctx.Ack(); err != nil {
 			logger.Error("ack", "error", err)
 		}
@@ -165,31 +165,31 @@ func getTopicName(defaultTopic, messageTopic string) string {
 	return defaultTopic
 }
 
-func (c *connector) resolveTableToTopicName(fullTableName, tableNamespace, tableName string) string {
+func (c *connector) resolveTableToTopicName(fullTableName, tableNamespace, tableName string) (string, bool) {
 	tableTopicMapping := c.cfg.Kafka.TableTopicMapping
 	if len(tableTopicMapping) == 0 {
-		return ""
+		return "", true
 	}
 
 	if topicName, exists := tableTopicMapping[fullTableName]; exists {
-		return topicName
+		return topicName, true
 	}
 
 	if t, ok := timescaledb.HyperTables.Load(fullTableName); ok {
 		parentName := t.(string)
 		if topicName, exists := tableTopicMapping[parentName]; exists {
-			return topicName
+			return topicName, true
 		}
 	}
 
 	parentTableName := c.getParentTableName(fullTableName, tableNamespace, tableName)
 	if parentTableName != "" {
 		if topicName, exists := tableTopicMapping[parentTableName]; exists {
-			return topicName
+			return topicName, true
 		}
 	}
 
-	return ""
+	return "", false
 }
 
 func (c *connector) getParentTableName(fullTableName, tableNamespace, tableName string) string {
