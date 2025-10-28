@@ -119,6 +119,8 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 		msg = NewUpdateMessage(m)
 	case *format.Delete:
 		msg = NewDeleteMessage(m)
+	case *format.Snapshot:
+		msg = NewSnapshotMessage(m)
 	default:
 		return
 	}

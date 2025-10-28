@@ -50,14 +50,27 @@ func NewDeleteMessage(m *format.Delete) *Message {
 	}
 }
 
+func NewSnapshotMessage(m *format.Snapshot) *Message {
+	return &Message{
+		EventTime:      m.ServerTime,
+		TableName:      m.Table,
+		TableNamespace: m.Schema,
+		OldData:        nil,
+		NewData:        m.Data,
+		Type:           SnapshotMessage,
+	}
+}
+
 type MessageType string
 
 const (
-	InsertMessage MessageType = "INSERT"
-	UpdateMessage MessageType = "UPDATE"
-	DeleteMessage MessageType = "DELETE"
+	InsertMessage   MessageType = "INSERT"
+	UpdateMessage   MessageType = "UPDATE"
+	DeleteMessage   MessageType = "DELETE"
+	SnapshotMessage MessageType = "SNAPSHOT"
 )
 
-func (m MessageType) IsInsert() bool { return m == InsertMessage }
-func (m MessageType) IsUpdate() bool { return m == UpdateMessage }
-func (m MessageType) IsDelete() bool { return m == DeleteMessage }
+func (m MessageType) IsInsert() bool   { return m == InsertMessage }
+func (m MessageType) IsUpdate() bool   { return m == UpdateMessage }
+func (m MessageType) IsDelete() bool   { return m == DeleteMessage }
+func (m MessageType) IsSnapshot() bool { return m == SnapshotMessage }
