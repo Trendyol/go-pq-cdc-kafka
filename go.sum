@@ -8,6 +8,8 @@ github.com/Trendyol/go-pq-cdc v1.0.3-0.20251104132322-8630a2662168 h1:4yQE0kLnhi
 github.com/Trendyol/go-pq-cdc v1.0.3-0.20251104132322-8630a2662168/go.mod h1:RIooS3DPOWkXxq7nhrOuGgkD4x3ondWEYOrOEHAHnxc=
 github.com/Trendyol/go-pq-cdc v1.0.3-0.20251104135326-c754171ba84f h1:QNcKiHelSz6CCqqBYT+ddg2QQC3Lxmi+/rpw8FOUfhA=
 github.com/Trendyol/go-pq-cdc v1.0.3-0.20251104135326-c754171ba84f/go.mod h1:RIooS3DPOWkXxq7nhrOuGgkD4x3ondWEYOrOEHAHnxc=
+github.com/Trendyol/go-pq-cdc v1.0.3-0.20251105105504-0ff70a8154b0 h1:ynP/k7SqAEHR06ip7pdIpKwp5C6StPbJ7lDA6z5uRog=
+github.com/Trendyol/go-pq-cdc v1.0.3-0.20251105105504-0ff70a8154b0/go.mod h1:RIooS3DPOWkXxq7nhrOuGgkD4x3ondWEYOrOEHAHnxc=
 github.com/avast/retry-go/v4 v4.6.0 h1:K9xNA+KeB8HHc2aWFuLb25Offp+0iVRXEvFx8IinRJA=
 github.com/avast/retry-go/v4 v4.6.0/go.mod h1:gvWlPhBVsvBbLkVGDg/KwvBv0bEkCOLRRSHKIr2PyOE=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
