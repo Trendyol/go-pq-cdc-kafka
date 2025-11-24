@@ -69,6 +69,32 @@ This architecture guarantees minimal downtime and continuous data synchronizatio
 3. **CDC Phase**: Seamlessly transitions to real-time change data capture
 4. **No Gaps**: Ensures all changes during snapshot are captured via CDC
 
+### Identifying Snapshot vs CDC Messages
+
+Your handler function can distinguish between snapshot and CDC messages:
+
+```go
+func Handler(msg *cdc.Message) []gokafka.Message {
+    // Check if this is a snapshot message (historical data)
+    if msg.Type.IsSnapshot() {
+        // Handle snapshot data
+        return []gokafka.Message{{
+            Headers: []gokafka.Header{
+                {Key: "operation", Value: []byte("SNAPSHOT")},
+                {Key: "source", Value: []byte("initial-snapshot")},
+            },
+            Key:   key,
+            Value: data,
+        }}
+    }
+    
+    // Handle real-time CDC operations
+    if msg.Type.IsInsert() { /* ... */ }
+    if msg.Type.IsUpdate() { /* ... */ }
+    if msg.Type.IsDelete() { /* ... */ }
+}
+```
+
 For detailed configuration and usage, see the [snapshot example](./example/snapshot).
 
 ## Usage
