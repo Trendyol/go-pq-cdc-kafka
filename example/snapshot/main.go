@@ -125,104 +125,55 @@ func main() {
 }
 
 func Handler(msg *cdc.Message) []gokafka.Message {
-	time.Sleep(10 * time.Millisecond)
 	tableName := msg.TableNamespace + "." + msg.TableName
 
-	// Handle SNAPSHOT messages - these come during initial snapshot phase
-	if msg.Type.IsSnapshot() {
-		slog.Info("📸 snapshot data captured",
-			"table", tableName,
-			"type", "SNAPSHOT",
-			"timestamp", msg.EventTime,
-		)
-
-		msg.NewData["operation"] = string(msg.Type)
-		newData, _ := json.Marshal(msg.NewData)
-
-		return []gokafka.Message{
-			{
-				Headers: []gokafka.Header{
-					{Key: "operation", Value: []byte("SNAPSHOT")},
-					{Key: "table", Value: []byte(tableName)},
-					{Key: "source", Value: []byte("initial-snapshot")},
-				},
-				Key:   []byte(strconv.Itoa(int(msg.NewData["id"].(int32)))),
-				Value: newData,
-			},
-		}
-	}
-
-	// Handle INSERT messages - these come during CDC phase
-	if msg.Type.IsInsert() {
-		slog.Info("✨ insert captured",
-			"table", tableName,
-			"type", "INSERT",
-			"timestamp", msg.EventTime,
-		)
-
-		msg.NewData["operation"] = string(msg.Type)
-		newData, _ := json.Marshal(msg.NewData)
-
-		return []gokafka.Message{
-			{
-				Headers: []gokafka.Header{
-					{Key: "operation", Value: []byte("INSERT")},
-					{Key: "table", Value: []byte(tableName)},
-					{Key: "source", Value: []byte("cdc")},
-				},
-				Key:   []byte(strconv.Itoa(int(msg.NewData["id"].(int32)))),
-				Value: newData,
-			},
-		}
-	}
-
-	// Handle UPDATE messages - these come during CDC phase
-	if msg.Type.IsUpdate() {
-		slog.Info("🔄 update captured",
-			"table", tableName,
-			"type", "UPDATE",
-			"timestamp", msg.EventTime,
-		)
-
-		msg.NewData["operation"] = string(msg.Type)
-		newData, _ := json.Marshal(msg.NewData)
-
-		return []gokafka.Message{
-			{
-				Headers: []gokafka.Header{
-					{Key: "operation", Value: []byte("UPDATE")},
-					{Key: "table", Value: []byte(tableName)},
-					{Key: "source", Value: []byte("cdc")},
-				},
-				Key:   []byte(strconv.Itoa(int(msg.NewData["id"].(int32)))),
-				Value: newData,
-			},
-		}
-	}
-
-	// Handle DELETE messages - these come during CDC phase
-	if msg.Type.IsDelete() {
-		slog.Info("🗑️  delete captured",
-			"table", tableName,
-			"type", "DELETE",
-			"timestamp", msg.EventTime,
-		)
-
-		msg.OldData["operation"] = string(msg.Type)
-		oldData, _ := json.Marshal(msg.OldData)
-
-		return []gokafka.Message{
-			{
-				Headers: []gokafka.Header{
-					{Key: "operation", Value: []byte("DELETE")},
-					{Key: "table", Value: []byte(tableName)},
-					{Key: "source", Value: []byte("cdc")},
-				},
-				Key:   []byte(strconv.Itoa(int(msg.OldData["id"].(int32)))),
-				Value: oldData,
-			},
-		}
+	switch {
+	case msg.Type.IsSnapshot():
+		return handleSnapshot(msg, tableName)
+	case msg.Type.IsInsert():
+		return handleInsert(msg, tableName)
+	case msg.Type.IsUpdate():
+		return handleUpdate(msg, tableName)
+	case msg.Type.IsDelete():
+		return handleDelete(msg, tableName)
 	}
 
 	return []gokafka.Message{}
+}
+
+func handleSnapshot(msg *cdc.Message, tableName string) []gokafka.Message {
+	slog.Info("📸 snapshot data captured", "table", tableName, "type", "SNAPSHOT", "timestamp", msg.EventTime)
+	return buildKafkaMessage(msg.NewData, tableName, "SNAPSHOT", "initial-snapshot")
+}
+
+func handleInsert(msg *cdc.Message, tableName string) []gokafka.Message {
+	slog.Info("✨ insert captured", "table", tableName, "type", "INSERT", "timestamp", msg.EventTime)
+	return buildKafkaMessage(msg.NewData, tableName, "INSERT", "cdc")
+}
+
+func handleUpdate(msg *cdc.Message, tableName string) []gokafka.Message {
+	slog.Info("🔄 update captured", "table", tableName, "type", "UPDATE", "timestamp", msg.EventTime)
+	return buildKafkaMessage(msg.NewData, tableName, "UPDATE", "cdc")
+}
+
+func handleDelete(msg *cdc.Message, tableName string) []gokafka.Message {
+	slog.Info("🗑️  delete captured", "table", tableName, "type", "DELETE", "timestamp", msg.EventTime)
+	return buildKafkaMessage(msg.OldData, tableName, "DELETE", "cdc")
+}
+
+func buildKafkaMessage(data map[string]any, tableName, operation, source string) []gokafka.Message {
+	data["operation"] = operation
+	payload, _ := json.Marshal(data)
+
+	return []gokafka.Message{
+		{
+			Headers: []gokafka.Header{
+				{Key: "operation", Value: []byte(operation)},
+				{Key: "table", Value: []byte(tableName)},
+				{Key: "source", Value: []byte(source)},
+			},
+			Key:   []byte(strconv.Itoa(int(data["id"].(int32)))),
+			Value: payload,
+		},
+	}
 }
