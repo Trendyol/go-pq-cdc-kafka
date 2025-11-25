@@ -78,6 +78,22 @@ func NewConnector(ctx context.Context, config config.Connector, handler Handler,
 }
 
 func (c *connector) Start(ctx context.Context) {
+	// Snapshot-only mode: different flow since upstream CDC exits immediately
+	if c.cfg.CDC.IsSnapshotOnlyMode() {
+		logger.Info("starting snapshot-only mode")
+		logger.Info("bulk process started")
+		c.producer.StartBatch()
+
+		// Signal ready immediately since there's no CDC to wait for
+		c.readyCh <- struct{}{}
+
+		// Start CDC synchronously - it will execute snapshot and return
+		c.cdc.Start(ctx)
+		logger.Info("snapshot-only mode completed")
+		return
+	}
+
+	// Normal CDC mode: async flow
 	go func() {
 		logger.Info("waiting for connector start...")
 		if err := c.cdc.WaitUntilReady(ctx); err != nil {
@@ -119,6 +135,8 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 		msg = NewUpdateMessage(m)
 	case *format.Delete:
 		msg = NewDeleteMessage(m)
+	case *format.Snapshot:
+		msg = NewSnapshotMessage(m)
 	default:
 		return
 	}
