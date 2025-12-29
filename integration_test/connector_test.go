@@ -245,7 +245,7 @@ func TestConnector_UpdateOperation(t *testing.T) {
 	assert.Equal(t, "UPDATE", data["operation"])
 	assert.Equal(t, "Updated User", data["name"])
 	assert.Equal(t, "updated@example.com", data["email"])
-	assert.EqualValues(t, userID, data["id"].(int))
+	assert.Equal(t, userID, int(data["id"].(float64)))
 }
 
 func TestConnector_DeleteOperation(t *testing.T) {
@@ -361,7 +361,7 @@ func TestConnector_DeleteOperation(t *testing.T) {
 	assert.Equal(t, "DELETE", data["operation"])
 	assert.Equal(t, "User To Delete", data["name"])
 	assert.Equal(t, "delete@example.com", data["email"])
-	assert.EqualValues(t, userID, data["id"].(int))
+	assert.Equal(t, userID, int(data["id"].(float64)))
 }
 
 func handler(msg *cdc.Message) []kafka.Message {
