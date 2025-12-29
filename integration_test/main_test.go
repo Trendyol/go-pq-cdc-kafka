@@ -23,7 +23,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true") // Podman: disable Ryuk
+	// os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true") // Podman: disable Ryuk
 
 	ctx := context.Background()
 	var err error

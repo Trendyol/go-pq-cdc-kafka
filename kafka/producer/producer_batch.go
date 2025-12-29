@@ -71,13 +71,15 @@ func (b *Batch) AddEvents(ctx *replication.ListenerContext, messages []gokafka.M
 	if isLastChunk {
 		b.lastAckCtx = ctx
 	}
+
+	shouldFlush := len(b.messages) >= b.batchLimit || b.currentMessageBytes >= b.batchBytes
 	b.flushLock.Unlock()
 
 	if isLastChunk {
 		b.metric.SetProcessLatency(time.Since(eventTime).Nanoseconds())
 	}
 
-	if len(b.messages) >= b.batchLimit || b.currentMessageBytes >= b.batchBytes {
+	if shouldFlush {
 		b.FlushMessages()
 	}
 }
