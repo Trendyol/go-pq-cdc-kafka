@@ -8,12 +8,12 @@ import (
 )
 
 type TestInfrastructure struct {
+	PostgresContainer testcontainers.Container
+	KafkaContainer    testcontainers.Container
 	PostgresHost      string
 	PostgresPort      string
 	KafkaHost         string
 	KafkaPort         string
-	PostgresContainer testcontainers.Container
-	KafkaContainer    testcontainers.Container
 }
 
 func (ti *TestInfrastructure) Cleanup(ctx context.Context) error {
