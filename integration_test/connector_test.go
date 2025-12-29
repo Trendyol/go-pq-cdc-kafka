@@ -98,8 +98,12 @@ func TestConnector_InsertOperation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test data
-	_, err = db.Exec(`INSERT INTO users (name, email) VALUES ($1, $2)`, "Test User", "test@example.com")
-	require.NoError(t, err)
+	for i := 1; i <= 5; i++ {
+		_, err = db.Exec(`INSERT INTO users (name, email) VALUES ($1, $2)`,
+			fmt.Sprintf("Test User %d", i),
+			fmt.Sprintf("test%d@example.com", i))
+		require.NoError(t, err)
+	}
 
 	// Setup Kafka reader to read from beginning
 	reader := kafka.NewReader(kafka.ReaderConfig{
@@ -114,22 +118,28 @@ func TestConnector_InsertOperation(t *testing.T) {
 	// Set offset to beginning
 	reader.SetOffset(kafka.FirstOffset)
 
-	// Read message with timeout
+	// Read messages with timeout
 	msgCtx, msgCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer msgCancel()
 
-	message, err := reader.ReadMessage(msgCtx)
-	require.NoError(t, err)
+	// Read all insert messages
+	messagesReceived := 0
+	for i := 0; i < 5; i++ {
+		message, err := reader.ReadMessage(msgCtx)
+		require.NoError(t, err)
 
-	// Verify message
-	var data map[string]interface{}
-	err = json.Unmarshal(message.Value, &data)
-	require.NoError(t, err)
+		var data map[string]interface{}
+		err = json.Unmarshal(message.Value, &data)
+		require.NoError(t, err)
 
-	assert.Equal(t, "INSERT", data["operation"])
-	assert.Equal(t, "Test User", data["name"])
-	assert.Equal(t, "test@example.com", data["email"])
-	assert.NotNil(t, data["id"])
+		assert.Equal(t, "INSERT", data["operation"])
+		assert.Contains(t, data["name"], "Test User")
+		assert.Contains(t, data["email"], "test")
+		assert.NotNil(t, data["id"])
+		messagesReceived++
+	}
+
+	assert.Equal(t, 5, messagesReceived, "Should receive 5 INSERT messages")
 }
 
 func TestConnector_UpdateOperation(t *testing.T) {
@@ -151,9 +161,15 @@ func TestConnector_UpdateOperation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert initial data
-	var userID int
-	err = db.QueryRow(`INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id`, "Original User", "original@example.com").Scan(&userID)
-	require.NoError(t, err)
+	userIDs := make([]int, 0, 5)
+	for i := 1; i <= 5; i++ {
+		var userID int
+		err = db.QueryRow(`INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id`,
+			fmt.Sprintf("Original User %d", i),
+			fmt.Sprintf("original%d@example.com", i)).Scan(&userID)
+		require.NoError(t, err)
+		userIDs = append(userIDs, userID)
+	}
 
 	// Setup connector
 	postgresPort, _ := strconv.Atoi(Infra.PostgresPort)
@@ -214,8 +230,13 @@ func TestConnector_UpdateOperation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Update data
-	_, err = db.Exec(`UPDATE users SET name = $1, email = $2 WHERE id = $3`, "Updated User", "updated@example.com", userID)
-	require.NoError(t, err)
+	for i, userID := range userIDs {
+		_, err = db.Exec(`UPDATE users SET name = $1, email = $2 WHERE id = $3`,
+			fmt.Sprintf("Updated User %d", i+1),
+			fmt.Sprintf("updated%d@example.com", i+1),
+			userID)
+		require.NoError(t, err)
+	}
 
 	// Setup Kafka reader to read from beginning
 	reader := kafka.NewReader(kafka.ReaderConfig{
@@ -230,22 +251,32 @@ func TestConnector_UpdateOperation(t *testing.T) {
 	// Set offset to beginning
 	reader.SetOffset(kafka.FirstOffset)
 
-	// Read message with timeout
+	// Read messages with timeout
 	msgCtx, msgCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer msgCancel()
 
-	message, err := reader.ReadMessage(msgCtx)
-	require.NoError(t, err)
+	// Read all update messages
+	messagesReceived := 0
+	receivedIDs := make(map[int]bool)
+	for i := 0; i < 5; i++ {
+		message, err := reader.ReadMessage(msgCtx)
+		require.NoError(t, err)
 
-	// Verify message
-	var data map[string]interface{}
-	err = json.Unmarshal(message.Value, &data)
-	require.NoError(t, err)
+		var data map[string]interface{}
+		err = json.Unmarshal(message.Value, &data)
+		require.NoError(t, err)
 
-	assert.Equal(t, "UPDATE", data["operation"])
-	assert.Equal(t, "Updated User", data["name"])
-	assert.Equal(t, "updated@example.com", data["email"])
-	assert.Equal(t, userID, int(data["id"].(float64)))
+		assert.Equal(t, "UPDATE", data["operation"])
+		assert.Contains(t, data["name"], "Updated User")
+		assert.Contains(t, data["email"], "updated")
+
+		receivedID := int(data["id"].(float64))
+		receivedIDs[receivedID] = true
+		messagesReceived++
+	}
+
+	assert.Equal(t, 5, messagesReceived, "Should receive 5 UPDATE messages")
+	assert.Equal(t, 5, len(receivedIDs), "Should receive updates for 5 different users")
 }
 
 func TestConnector_DeleteOperation(t *testing.T) {
@@ -267,9 +298,15 @@ func TestConnector_DeleteOperation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert initial data
-	var userID int
-	err = db.QueryRow(`INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id`, "User To Delete", "delete@example.com").Scan(&userID)
-	require.NoError(t, err)
+	userIDs := make([]int, 0, 5)
+	for i := 1; i <= 5; i++ {
+		var userID int
+		err = db.QueryRow(`INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id`,
+			fmt.Sprintf("User To Delete %d", i),
+			fmt.Sprintf("delete%d@example.com", i)).Scan(&userID)
+		require.NoError(t, err)
+		userIDs = append(userIDs, userID)
+	}
 
 	// Setup connector
 	postgresPort, _ := strconv.Atoi(Infra.PostgresPort)
@@ -330,8 +367,10 @@ func TestConnector_DeleteOperation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete data
-	_, err = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
-	require.NoError(t, err)
+	for _, userID := range userIDs {
+		_, err = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+		require.NoError(t, err)
+	}
 
 	// Setup Kafka reader to read from beginning
 	reader := kafka.NewReader(kafka.ReaderConfig{
@@ -346,22 +385,32 @@ func TestConnector_DeleteOperation(t *testing.T) {
 	// Set offset to beginning
 	reader.SetOffset(kafka.FirstOffset)
 
-	// Read message with timeout
+	// Read messages with timeout
 	msgCtx, msgCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer msgCancel()
 
-	message, err := reader.ReadMessage(msgCtx)
-	require.NoError(t, err)
+	// Read all delete messages
+	messagesReceived := 0
+	receivedIDs := make(map[int]bool)
+	for i := 0; i < 5; i++ {
+		message, err := reader.ReadMessage(msgCtx)
+		require.NoError(t, err)
 
-	// Verify message
-	var data map[string]interface{}
-	err = json.Unmarshal(message.Value, &data)
-	require.NoError(t, err)
+		var data map[string]interface{}
+		err = json.Unmarshal(message.Value, &data)
+		require.NoError(t, err)
 
-	assert.Equal(t, "DELETE", data["operation"])
-	assert.Equal(t, "User To Delete", data["name"])
-	assert.Equal(t, "delete@example.com", data["email"])
-	assert.Equal(t, userID, int(data["id"].(float64)))
+		assert.Equal(t, "DELETE", data["operation"])
+		assert.Contains(t, data["name"], "User To Delete")
+		assert.Contains(t, data["email"], "delete")
+
+		receivedID := int(data["id"].(float64))
+		receivedIDs[receivedID] = true
+		messagesReceived++
+	}
+
+	assert.Equal(t, 5, messagesReceived, "Should receive 5 DELETE messages")
+	assert.Equal(t, 5, len(receivedIDs), "Should receive deletes for 5 different users")
 }
 
 func handler(msg *cdc.Message) []kafka.Message {

@@ -40,8 +40,10 @@ func TestConnector_SnapshotMode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert initial data before starting CDC
-	for i := 1; i <= 10; i++ {
-		_, err = db.Exec(`INSERT INTO books (title, author) VALUES ($1, $2)`, fmt.Sprintf("Book %d", i), fmt.Sprintf("Author %d", i))
+	for i := 1; i <= 50; i++ {
+		_, err = db.Exec(`INSERT INTO books (title, author) VALUES ($1, $2)`,
+			fmt.Sprintf("Book %d", i),
+			fmt.Sprintf("Author %d", i))
 		require.NoError(t, err)
 	}
 
@@ -102,7 +104,7 @@ func TestConnector_SnapshotMode(t *testing.T) {
 	go connector.Start(ctx)
 
 	// Wait a bit for snapshot to complete
-	time.Sleep(5 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	// Setup Kafka reader to read from beginning
 	reader := kafka.NewReader(kafka.ReaderConfig{
@@ -122,7 +124,7 @@ func TestConnector_SnapshotMode(t *testing.T) {
 	msgCtx, msgCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer msgCancel()
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 50; i++ {
 		message, err := reader.ReadMessage(msgCtx)
 		if err != nil {
 			break
@@ -131,17 +133,33 @@ func TestConnector_SnapshotMode(t *testing.T) {
 	}
 
 	// Verify we received snapshot messages
-	assert.GreaterOrEqual(t, len(messages), 10, "Should receive at least 10 snapshot messages")
+	assert.GreaterOrEqual(t, len(messages), 50, "Should receive at least 50 snapshot messages")
 
-	// Verify first message
-	var data map[string]interface{}
-	err = json.Unmarshal(messages[0].Value, &data)
-	require.NoError(t, err)
+	// Verify first few messages
+	receivedTitles := make(map[string]bool)
+	receivedAuthors := make(map[string]bool)
 
-	assert.Equal(t, "SNAPSHOT", data["operation"])
-	assert.Contains(t, data, "title")
-	assert.Contains(t, data, "author")
-	assert.Contains(t, data, "id")
+	for i := 0; i < len(messages) && i < 50; i++ {
+		var data map[string]interface{}
+		err = json.Unmarshal(messages[i].Value, &data)
+		require.NoError(t, err)
+
+		assert.Equal(t, "SNAPSHOT", data["operation"])
+		assert.Contains(t, data, "title")
+		assert.Contains(t, data, "author")
+		assert.Contains(t, data, "id")
+
+		if title, ok := data["title"].(string); ok {
+			receivedTitles[title] = true
+		}
+		if author, ok := data["author"].(string); ok {
+			receivedAuthors[author] = true
+		}
+	}
+
+	// Verify we received different books
+	assert.GreaterOrEqual(t, len(receivedTitles), 10, "Should receive at least 10 different book titles")
+	assert.GreaterOrEqual(t, len(receivedAuthors), 10, "Should receive at least 10 different authors")
 }
 
 func snapshotHandler(msg *cdc.Message) []kafka.Message {
