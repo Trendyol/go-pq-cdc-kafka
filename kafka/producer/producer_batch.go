@@ -15,14 +15,14 @@ import (
 
 type Batch struct {
 	responseHandler     kafka.ResponseHandler
+	metric              Metric
 	batchTicker         *time.Ticker
 	Writer              *gokafka.Writer
-	metric              Metric
+	lastAckCtx          *replication.ListenerContext
 	messages            []gokafka.Message
 	batchTickerDuration time.Duration
 	batchLimit          int
 	batchBytes          int64
-	lastAckCtx          *replication.ListenerContext
 	currentMessageBytes int64
 	flushLock           sync.Mutex
 }
