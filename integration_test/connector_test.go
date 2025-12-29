@@ -276,7 +276,7 @@ func TestConnector_UpdateOperation(t *testing.T) {
 	}
 
 	assert.Equal(t, 5, messagesReceived, "Should receive 5 UPDATE messages")
-	assert.Equal(t, 5, len(receivedIDs), "Should receive updates for 5 different users")
+	assert.Len(t, receivedIDs, 5, "Should receive updates for 5 different users")
 }
 
 func TestConnector_DeleteOperation(t *testing.T) {
@@ -410,7 +410,7 @@ func TestConnector_DeleteOperation(t *testing.T) {
 	}
 
 	assert.Equal(t, 5, messagesReceived, "Should receive 5 DELETE messages")
-	assert.Equal(t, 5, len(receivedIDs), "Should receive deletes for 5 different users")
+	assert.Len(t, receivedIDs, 5, "Should receive deletes for 5 different users")
 }
 
 func handler(msg *cdc.Message) []kafka.Message {
