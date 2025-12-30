@@ -489,14 +489,11 @@ func TestConnector_AckMechanism(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert first batch of data (5 products to fill the batch)
-	firstBatchIDs := make([]int, 0, 5)
 	for i := 1; i <= 5; i++ {
-		var productID int
-		err = db.QueryRow(`INSERT INTO products (name, price) VALUES ($1, $2) RETURNING id`,
+		_, err = db.Exec(`INSERT INTO products (name, price) VALUES ($1, $2)`,
 			fmt.Sprintf("Product Batch 1 - %d", i),
-			float64(i)*10.50).Scan(&productID)
+			float64(i)*10.50)
 		require.NoError(t, err)
-		firstBatchIDs = append(firstBatchIDs, productID)
 	}
 
 	// Setup Kafka reader
@@ -541,14 +538,11 @@ func TestConnector_AckMechanism(t *testing.T) {
 	time.Sleep(time.Second * 1)
 
 	// Insert second batch while connector is down (these should be captured when we restart)
-	secondBatchIDs := make([]int, 0, 5)
 	for i := 1; i <= 5; i++ {
-		var productID int
-		err = db.QueryRow(`INSERT INTO products (name, price) VALUES ($1, $2) RETURNING id`,
+		_, err = db.Exec(`INSERT INTO products (name, price) VALUES ($1, $2)`,
 			fmt.Sprintf("Product Batch 2 - %d", i),
-			float64(i)*20.50).Scan(&productID)
+			float64(i)*20.50)
 		require.NoError(t, err)
-		secondBatchIDs = append(secondBatchIDs, productID)
 	}
 
 	// Restart connector with same configuration
