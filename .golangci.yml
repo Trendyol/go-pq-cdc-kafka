@@ -45,3 +45,4 @@ issues:
         - funlen
         - goconst
         - dupl
+        - errcheck

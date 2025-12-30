@@ -15,9 +15,10 @@ import (
 
 type Batch struct {
 	responseHandler     kafka.ResponseHandler
+	metric              Metric
 	batchTicker         *time.Ticker
 	Writer              *gokafka.Writer
-	metric              Metric
+	lastAckCtx          *replication.ListenerContext
 	messages            []gokafka.Message
 	batchTickerDuration time.Duration
 	batchLimit          int
@@ -68,17 +69,17 @@ func (b *Batch) AddEvents(ctx *replication.ListenerContext, messages []gokafka.M
 	b.messages = append(b.messages, messages...)
 	b.currentMessageBytes += totalSizeOfMessages(messages)
 	if isLastChunk {
-		if err := ctx.Ack(); err != nil {
-			logger.Error("ack", "error", err)
-		}
+		b.lastAckCtx = ctx
 	}
+
+	shouldFlush := len(b.messages) >= b.batchLimit || b.currentMessageBytes >= b.batchBytes
 	b.flushLock.Unlock()
 
 	if isLastChunk {
 		b.metric.SetProcessLatency(time.Since(eventTime).Nanoseconds())
 	}
 
-	if len(b.messages) >= b.batchLimit || b.currentMessageBytes >= b.batchBytes {
+	if shouldFlush {
 		b.FlushMessages()
 	}
 }
@@ -108,10 +109,15 @@ func (b *Batch) FlushMessages() {
 		}
 		b.messages = b.messages[:0]
 		b.currentMessageBytes = 0
+		if b.lastAckCtx != nil {
+			if err := b.lastAckCtx.Ack(); err != nil {
+				logger.Error("ack", "error", err)
+			}
+			b.lastAckCtx = nil
+		}
 		b.batchTicker.Reset(b.batchTickerDuration)
 	}
 }
-
 func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors) {
 	for i := range writeErrors {
 		if writeErrors[i] != nil {
