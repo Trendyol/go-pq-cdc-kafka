@@ -81,7 +81,7 @@ func (c *Connector) SetDefault() {
 	}
 
 	if c.Kafka.ProducerBatchBytes == "" {
-		c.Kafka.ProducerBatchBytes = "10mb"
+		c.Kafka.ProducerBatchBytes = "1mb"
 	}
 
 	if c.Kafka.RequiredAcks == 0 {
