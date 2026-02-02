@@ -3,7 +3,7 @@ module github.com/Trendyol/go-pq-cdc-kafka
 go 1.22.4
 
 require (
-	github.com/Trendyol/go-pq-cdc v1.5.7-0.20260202113013-b17a790169e5
+	github.com/Trendyol/go-pq-cdc v1.5.8-0.20260202121632-ff07ea14228b
 	github.com/docker/go-connections v0.5.0
 	github.com/lib/pq v1.10.9
 	github.com/pkg/errors v0.9.1
