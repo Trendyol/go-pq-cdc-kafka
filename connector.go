@@ -145,6 +145,10 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 
 	topicName, ok := c.resolveTableToTopicName(fullTableName, msg.TableNamespace, msg.TableName)
 	if !ok {
+		if c.producer.HasPendingMessages() {
+			logger.Warn("skipping ACK - pending messages in batch", "table", fullTableName)
+			return
+		}
 		if err := ctx.Ack(); err != nil {
 			logger.Error("ack", "error", err)
 		}
@@ -153,6 +157,10 @@ func (c *connector) listener(ctx *replication.ListenerContext) {
 
 	events := c.handler(msg)
 	if len(events) == 0 {
+		if c.producer.HasPendingMessages() {
+			logger.Warn("skipping ACK - pending messages in batch", "table", fullTableName)
+			return
+		}
 		if err := ctx.Ack(); err != nil {
 			logger.Error("ack", "error", err)
 		}

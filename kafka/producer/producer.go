@@ -63,3 +63,7 @@ func (p *Producer) Close() error {
 func (p *Producer) GetMetric() Metric {
 	return p.ProducerBatch.metric
 }
+
+func (p *Producer) HasPendingMessages() bool {
+	return p.ProducerBatch.HasPendingMessages()
+}
