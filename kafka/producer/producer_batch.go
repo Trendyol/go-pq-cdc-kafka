@@ -25,6 +25,7 @@ type Batch struct {
 	batchBytes          int64
 	currentMessageBytes int64
 	flushLock           sync.Mutex
+	hasPendingMessages  bool
 }
 
 func newBatch(
@@ -63,11 +64,18 @@ func (b *Batch) Close() {
 	b.FlushMessages()
 }
 
+func (b *Batch) HasPendingMessages() bool {
+	b.flushLock.Lock()
+	defer b.flushLock.Unlock()
+	return len(b.messages) > 0 || b.hasPendingMessages
+}
+
 func (b *Batch) AddEvents(ctx *replication.ListenerContext, messages []gokafka.Message, eventTime time.Time, isLastChunk bool) {
 	b.flushLock.Lock()
 
 	b.messages = append(b.messages, messages...)
 	b.currentMessageBytes += totalSizeOfMessages(messages)
+	b.hasPendingMessages = true
 	if isLastChunk {
 		b.lastAckCtx = ctx
 	}
@@ -94,10 +102,12 @@ func (b *Batch) FlushMessages() {
 
 		b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
 
+		var flushSuccess bool
 		if b.responseHandler != nil {
 			switch e := err.(type) { //nolint:errorLint
 			case nil:
 				b.handleResponseSuccess()
+				flushSuccess = true
 			case gokafka.WriteErrors:
 				b.handleWriteError(e)
 			case gokafka.MessageTooLargeError:
@@ -106,15 +116,25 @@ func (b *Batch) FlushMessages() {
 				b.handleResponseError(e)
 				logger.Error("batch producer flush", "error", err)
 			}
+		} else {
+			flushSuccess = (err == nil)
 		}
+
 		b.messages = b.messages[:0]
 		b.currentMessageBytes = 0
-		if b.lastAckCtx != nil {
-			if err := b.lastAckCtx.Ack(); err != nil {
-				logger.Error("ack", "error", err)
+
+		if flushSuccess {
+			b.hasPendingMessages = false
+			if b.lastAckCtx != nil {
+				if err := b.lastAckCtx.Ack(); err != nil {
+					logger.Error("ack", "error", err)
+				}
+				b.lastAckCtx = nil
 			}
-			b.lastAckCtx = nil
+		} else {
+			logger.Warn("flush failed, skipping ACK to preserve message ordering")
 		}
+
 		b.batchTicker.Reset(b.batchTickerDuration)
 	}
 }
