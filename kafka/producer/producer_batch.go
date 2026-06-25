@@ -73,8 +73,19 @@ func (b *Batch) HasPendingMessages() bool {
 func (b *Batch) AddEvents(ctx *replication.ListenerContext, messages []gokafka.Message, eventTime time.Time, isLastChunk bool) {
 	b.flushLock.Lock()
 
-	b.messages = append(b.messages, messages...)
-	b.currentMessageBytes += totalSizeOfMessages(messages)
+	for i := range messages {
+		msgSize := messageSize(&messages[i])
+		// Flush the already-buffered messages before appending one that would
+		// push the batch past producerBatchBytes, so a single request never
+		// exceeds the configured limit (and the broker's message.max.bytes).
+		if len(b.messages) > 0 && b.currentMessageBytes+msgSize > b.batchBytes {
+			b.flushMessages()
+		}
+
+		b.messages = append(b.messages, messages[i])
+		b.currentMessageBytes += msgSize
+	}
+
 	b.hasPendingMessages = true
 	if isLastChunk {
 		b.lastAckCtx = ctx
@@ -95,7 +106,11 @@ func (b *Batch) AddEvents(ctx *replication.ListenerContext, messages []gokafka.M
 func (b *Batch) FlushMessages() {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
+	b.flushMessages()
+}
 
+// flushMessages performs the flush. The caller must hold flushLock.
+func (b *Batch) flushMessages() {
 	if len(b.messages) > 0 {
 		startedTime := time.Now()
 		err := b.Writer.WriteMessages(context.Background(), b.messages...)
@@ -181,15 +196,11 @@ func (b *Batch) handleMessageTooLargeError(mTooLargeError gokafka.MessageTooLarg
 	})
 }
 
-func totalSizeOfMessages(messages []gokafka.Message) int64 {
-	var size int
-	for _, m := range messages {
-		headerSize := 0
-		for _, header := range m.Headers {
-			headerSize += 2 + len(header.Key)
-			headerSize += len(header.Value)
-		}
-		size += 14 + (4 + len(m.Key)) + (4 + len(m.Value)) + headerSize
+func messageSize(m *gokafka.Message) int64 {
+	headerSize := 0
+	for _, header := range m.Headers {
+		headerSize += 2 + len(header.Key)
+		headerSize += len(header.Value)
 	}
-	return int64(size)
+	return int64(14 + (4 + len(m.Key)) + (4 + len(m.Value)) + headerSize)
 }
