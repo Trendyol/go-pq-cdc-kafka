@@ -5,9 +5,9 @@ go 1.25.0
 replace github.com/Trendyol/go-pq-cdc-kafka => ../../
 
 require (
-	github.com/Trendyol/go-pq-cdc v1.10.11
+	github.com/Trendyol/go-pq-cdc v1.11.12
 	github.com/Trendyol/go-pq-cdc-kafka v0.0.1
-	github.com/segmentio/kafka-go v0.4.47
+	github.com/segmentio/kafka-go v0.4.51
 )
 
 require (
