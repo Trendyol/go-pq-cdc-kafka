@@ -50,9 +50,13 @@ SELECT COUNT(*) FROM books;  -- Should return 500
 
 ### 3. Run the Connector
 
+From this directory:
+
 ```bash
-go run main.go
+go run .
 ```
+
+Config lives in `config.yml` (snapshot mode, topics, mapper headers). No custom Handler is required.
 
 ### 4. Observe the Snapshot Process
 

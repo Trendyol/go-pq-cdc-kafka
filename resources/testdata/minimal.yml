@@ -1,0 +1,20 @@
+cdc:
+  host: host
+  username: u
+  password: p
+  database: db
+  publication:
+    name: pub
+    createIfNotExists: true
+    operations: [INSERT]
+    tables:
+      - name: users
+        replicaIdentity: FULL
+  slot:
+    name: slot
+    slotActivityCheckerInterval: 3000
+    createIfNotExists: true
+kafka:
+  brokers: [b:9092]
+  tableTopicMapping:
+    public.users: topic.x

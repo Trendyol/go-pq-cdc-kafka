@@ -1,0 +1,36 @@
+cdc:
+  host: 127.0.0.1
+  username: cdc_user
+  password: ${PG_PASSWORD}
+  database: cdc_db
+  port: 5432
+  publication:
+    createIfNotExists: false
+    name: cdc_publication
+    operations:
+      - INSERT
+      - UPDATE
+      - DELETE
+    tables: []
+  slot:
+    createIfNotExists: false
+    name: cdc_slot
+    slotActivityCheckerInterval: 3000
+  snapshot:
+    enabled: false
+    mode: never
+  metric:
+    port: 8080
+  logger:
+    level: INFO
+
+kafka:
+  brokers:
+    - localhost:9092
+  tableTopicMapping: {}
+  producerBatchSize: 2000
+  producerBatchTickerDuration: 10s
+  requiredAcks: 1
+
+mapper:
+  keyField: id

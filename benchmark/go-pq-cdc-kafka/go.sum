@@ -1,6 +1,7 @@
 github.com/Trendyol/go-pq-cdc v1.10.11 h1:z8qr92Kysy2C55Uita8hhL3MVCXEhE8/YwZ+VZQwp/E=
 github.com/Trendyol/go-pq-cdc v1.10.11/go.mod h1:a0Z9SANfTzs/5tQyBq2cUCkzyW2rgDrdpQuegKKSx34=
 github.com/Trendyol/go-pq-cdc v1.11.12/go.mod h1:a0Z9SANfTzs/5tQyBq2cUCkzyW2rgDrdpQuegKKSx34=
+github.com/Trendyol/go-pq-cdc v1.11.13/go.mod h1:a0Z9SANfTzs/5tQyBq2cUCkzyW2rgDrdpQuegKKSx34=
 github.com/avast/retry-go/v4 v4.6.0 h1:K9xNA+KeB8HHc2aWFuLb25Offp+0iVRXEvFx8IinRJA=
 github.com/avast/retry-go/v4 v4.6.0/go.mod h1:gvWlPhBVsvBbLkVGDg/KwvBv0bEkCOLRRSHKIr2PyOE=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

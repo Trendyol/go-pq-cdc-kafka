@@ -1,0 +1,45 @@
+cdc:
+  host: 127.0.0.1
+  username: cdc_user
+  password: cdc_pass
+  database: cdc_db
+  debugMode: false
+  publication:
+    createIfNotExists: true
+    name: cdc_publication
+    operations:
+      - INSERT
+      - DELETE
+      - TRUNCATE
+      - UPDATE
+    tables:
+      - name: users
+        replicaIdentity: FULL
+      - name: books
+        replicaIdentity: FULL
+  slot:
+    createIfNotExists: true
+    name: cdc_slot
+    slotActivityCheckerInterval: 3000
+  snapshot:
+    enabled: true
+    mode: initial
+    chunkSize: 1000
+    claimTimeout: 30s
+    heartbeatInterval: 5s
+  metric:
+    port: 8081
+  logger:
+    level: INFO
+
+kafka:
+  tableTopicMapping:
+    public.users: users.0
+    public.books: books.0
+  brokers:
+    - localhost:19092
+  allowAutoTopicCreation: true
+  producerBatchTickerDuration: 200ms
+
+mapper:
+  keyField: id

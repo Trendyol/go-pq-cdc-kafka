@@ -43,6 +43,9 @@ lint: init/lint
 	fieldalignment -fix ./...
 	golangci-lint run -c .golangci.yml -v --fix
 
-.PHONY: build
+.PHONY: build build/linux
+build:
+	go build -o bin/connector ./cmd/connector
+
 build/linux:
-	GOOS=linux CGO_ENABLED=0 GOARCH=amd64 go build -trimpath -a -v
+	GOOS=linux CGO_ENABLED=0 GOARCH=amd64 go build -trimpath -a -v -o bin/connector ./cmd/connector
