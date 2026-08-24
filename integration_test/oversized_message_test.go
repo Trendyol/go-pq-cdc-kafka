@@ -92,6 +92,8 @@ func TestConnector_SkipOversizedMessages_SamePartitionKeyDeliversValidMessages(t
 		oversizedMaxBytes,
 		13,
 	)
+
+	connector, err := cdc.NewConnector(ctx, cfg, samePartitionOversizedHandler)
 	require.NoError(t, err)
 	defer connector.Close()
 
