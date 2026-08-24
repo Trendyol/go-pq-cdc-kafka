@@ -29,12 +29,19 @@ func NewProducer(
 		return Producer{}, errors.Wrap(err, "producerBatchBytes parse")
 	}
 
+	maxMessageBytes, err := bytes.ParseSize(config.Kafka.MaxMessageBytes)
+	if err != nil {
+		return Producer{}, errors.Wrap(err, "maxMessageBytes parse")
+	}
+
 	return Producer{
 		ProducerBatch: newBatch(
 			config.Kafka.ProducerBatchTickerDuration,
 			writer,
 			config.Kafka.ProducerBatchSize,
 			int64(batchBytes),
+			int64(maxMessageBytes),
+			config.Kafka.SkipOversizedMessages,
 			responseHandler,
 			config.CDC.Slot.Name,
 			pqCDC,

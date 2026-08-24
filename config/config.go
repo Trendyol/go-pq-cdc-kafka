@@ -30,6 +30,8 @@ type Kafka struct {
 	Compression                 int8              `yaml:"compression"`
 	SecureConnection            bool              `yaml:"secureConnection"`
 	AllowAutoTopicCreation      bool              `yaml:"allowAutoTopicCreation"`
+	SkipOversizedMessages       bool              `yaml:"skipOversizedMessages"`
+	MaxMessageBytes             string            `yaml:"maxMessageBytes"`
 }
 
 type Connector struct {
@@ -94,5 +96,9 @@ func (c *Connector) SetDefault() {
 
 	if c.Kafka.ProducerMaxAttempts == 0 {
 		c.Kafka.ProducerMaxAttempts = math.MaxInt
+	}
+
+	if c.Kafka.MaxMessageBytes == "" {
+		c.Kafka.MaxMessageBytes = "1mb"
 	}
 }
