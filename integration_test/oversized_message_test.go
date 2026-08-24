@@ -52,7 +52,7 @@ func TestConnector_SkipOversizedMessages_MixedBatchDeliversValidMessages(t *test
 	defer connector.Close()
 
 	go connector.Start(ctx)
-	waitForConnectorReady(t, ctx, connector)
+	waitForConnectorReady(ctx, t, connector)
 
 	// 10 valid + 1 oversized + 4 valid = 15 messages; batch size 15 triggers flush.
 	for i := 1; i <= 10; i++ {
@@ -98,7 +98,7 @@ func TestConnector_SkipOversizedMessages_SamePartitionKeyDeliversValidMessages(t
 	defer connector.Close()
 
 	go connector.Start(ctx)
-	waitForConnectorReady(t, ctx, connector)
+	waitForConnectorReady(ctx, t, connector)
 
 	// Same Kafka key for all rows → same partition batch.
 	for i := 1; i <= 8; i++ {
@@ -144,7 +144,7 @@ func TestConnector_SkipOversizedMessages_AllOversizedBatchDoesNotStallSlot(t *te
 	defer connector.Close()
 
 	go connector.Start(ctx)
-	waitForConnectorReady(t, ctx, connector)
+	waitForConnectorReady(ctx, t, connector)
 
 	for i := 1; i <= 5; i++ {
 		insertOversizedEvent(t, db, tableName, fmt.Sprintf("oversized-only-%d", i), largePayload())
@@ -275,7 +275,7 @@ func oversizedConnectorConfig(
 	}
 }
 
-func waitForConnectorReady(t *testing.T, ctx context.Context, connector cdc.Connector) {
+func waitForConnectorReady(ctx context.Context, t *testing.T, connector cdc.Connector) {
 	t.Helper()
 
 	readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
