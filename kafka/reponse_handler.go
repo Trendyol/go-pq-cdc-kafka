@@ -20,15 +20,45 @@ type ResponseHandler interface {
 	OnError(ctx *ResponseHandlerContext)
 }
 
-type DefaultResponseHandler struct{}
+type DefaultResponseHandler struct {
+	SkipOversizedMessages bool
+}
+
+func NewDefaultResponseHandler(skipOversizedMessages bool) *DefaultResponseHandler {
+	return &DefaultResponseHandler{SkipOversizedMessages: skipOversizedMessages}
+}
 
 func (drh *DefaultResponseHandler) OnSuccess(_ *ResponseHandlerContext) {}
+
 func (drh *DefaultResponseHandler) OnError(ctx *ResponseHandlerContext) {
+	if drh.SkipOversizedMessages && IsMessageTooLarge(ctx.Err) {
+		if ctx.Message != nil {
+			logger.Error("oversized kafka message skipped",
+				"topic", ctx.Message.Topic,
+				"key", string(ctx.Message.Key),
+				"valueBytes", len(ctx.Message.Value),
+				"error", ctx.Err,
+			)
+		} else {
+			logger.Error("oversized kafka message skipped", "error", ctx.Err)
+		}
+		return
+	}
+
 	if isFatalError(ctx.Err) {
 		logger.Error("permanent error on kafka while flush messages", "error", ctx.Err)
 		panic(fmt.Errorf("permanent error on Kafka side %w", ctx.Err))
 	}
 	logger.Error("batch producer flush", "error", ctx.Err)
+}
+
+func IsMessageTooLarge(err error) bool {
+	if errors.Is(err, kafka.MessageSizeTooLarge) {
+		return true
+	}
+
+	var tooLarge kafka.MessageTooLargeError
+	return errors.As(err, &tooLarge)
 }
 
 func isFatalError(err error) bool {

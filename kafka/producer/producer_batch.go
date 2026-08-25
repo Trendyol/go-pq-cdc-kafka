@@ -14,18 +14,20 @@ import (
 )
 
 type Batch struct {
-	responseHandler     kafka.ResponseHandler
-	metric              Metric
-	batchTicker         *time.Ticker
-	Writer              *gokafka.Writer
-	lastAckCtx          *replication.ListenerContext
-	messages            []gokafka.Message
-	batchTickerDuration time.Duration
-	batchLimit          int
-	batchBytes          int64
-	currentMessageBytes int64
-	flushLock           sync.Mutex
-	hasPendingMessages  bool
+	responseHandler       kafka.ResponseHandler
+	metric                Metric
+	batchTicker           *time.Ticker
+	Writer                *gokafka.Writer
+	lastAckCtx            *replication.ListenerContext
+	messages              []gokafka.Message
+	batchTickerDuration   time.Duration
+	batchLimit            int
+	batchBytes            int64
+	maxMessageBytes       int64
+	currentMessageBytes   int64
+	flushLock             sync.Mutex
+	hasPendingMessages    bool
+	skipOversizedMessages bool
 }
 
 func newBatch(
@@ -33,19 +35,23 @@ func newBatch(
 	writer *gokafka.Writer,
 	batchLimit int,
 	batchBytes int64,
+	maxMessageBytes int64,
+	skipOversizedMessages bool,
 	responseHandler kafka.ResponseHandler,
 	slotName string,
 	pqCDC cdc.Connector,
 ) *Batch {
 	batch := &Batch{
-		batchTickerDuration: batchTime,
-		batchTicker:         time.NewTicker(batchTime),
-		metric:              NewMetric(pqCDC, slotName),
-		messages:            make([]gokafka.Message, 0, batchLimit),
-		Writer:              writer,
-		batchLimit:          batchLimit,
-		batchBytes:          batchBytes,
-		responseHandler:     responseHandler,
+		batchTickerDuration:   batchTime,
+		batchTicker:           time.NewTicker(batchTime),
+		metric:                NewMetric(pqCDC, slotName),
+		messages:              make([]gokafka.Message, 0, batchLimit),
+		Writer:                writer,
+		batchLimit:            batchLimit,
+		batchBytes:            batchBytes,
+		maxMessageBytes:       maxMessageBytes,
+		skipOversizedMessages: skipOversizedMessages,
+		responseHandler:       responseHandler,
 	}
 	return batch
 }
@@ -111,89 +117,165 @@ func (b *Batch) FlushMessages() {
 
 // flushMessages performs the flush. The caller must hold flushLock.
 func (b *Batch) flushMessages() {
-	if len(b.messages) > 0 {
-		startedTime := time.Now()
-		err := b.Writer.WriteMessages(context.Background(), b.messages...)
+	if len(b.messages) == 0 {
+		return
+	}
 
-		b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
+	messagesToSend := b.messages
+	if b.skipOversizedMessages {
+		messagesToSend = b.removeOversizedMessages(b.messages)
+	}
 
-		var flushSuccess bool
-		if b.responseHandler != nil {
-			switch e := err.(type) { //nolint:errorLint
-			case nil:
-				b.handleResponseSuccess()
-				flushSuccess = true
-			case gokafka.WriteErrors:
-				b.handleWriteError(e)
-			case gokafka.MessageTooLargeError:
-				b.handleMessageTooLargeError(e)
-			default:
-				b.handleResponseError(e)
-				logger.Error("batch producer flush", "error", err)
+	startedTime := time.Now()
+	var err error
+	if len(messagesToSend) > 0 {
+		err = b.Writer.WriteMessages(context.Background(), messagesToSend...)
+	}
+
+	b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
+
+	flushSuccess := b.handleFlushResult(err, messagesToSend)
+
+	b.messages = b.messages[:0]
+	b.currentMessageBytes = 0
+
+	if flushSuccess {
+		b.hasPendingMessages = false
+		if b.lastAckCtx != nil {
+			if ackErr := b.lastAckCtx.Ack(); ackErr != nil {
+				logger.Error("ack", "error", ackErr)
 			}
-		} else {
-			flushSuccess = (err == nil)
+			b.lastAckCtx = nil
 		}
+	} else {
+		logger.Warn("flush failed, skipping ACK to preserve message ordering")
+	}
 
-		b.messages = b.messages[:0]
-		b.currentMessageBytes = 0
+	b.batchTicker.Reset(b.batchTickerDuration)
+}
 
-		if flushSuccess {
-			b.hasPendingMessages = false
-			if b.lastAckCtx != nil {
-				if err := b.lastAckCtx.Ack(); err != nil {
-					logger.Error("ack", "error", err)
-				}
-				b.lastAckCtx = nil
-			}
-		} else {
-			logger.Warn("flush failed, skipping ACK to preserve message ordering")
+func (b *Batch) removeOversizedMessages(messages []gokafka.Message) []gokafka.Message {
+	if b.maxMessageBytes <= 0 {
+		return messages
+	}
+
+	valid := make([]gokafka.Message, 0, len(messages))
+	for i := range messages {
+		if messageSize(&messages[i]) > b.maxMessageBytes {
+			b.notifyOversizedSkipped(&messages[i])
+			continue
 		}
+		valid = append(valid, messages[i])
+	}
+	return valid
+}
 
-		b.batchTicker.Reset(b.batchTickerDuration)
+func (b *Batch) notifyOversizedSkipped(message *gokafka.Message) {
+	if b.responseHandler == nil {
+		return
+	}
+
+	b.metric.IncrementErrOp(message.Topic)
+	b.responseHandler.OnError(&kafka.ResponseHandlerContext{
+		Message: message,
+		Err:     gokafka.MessageSizeTooLarge,
+	})
+}
+
+func (b *Batch) handleFlushResult(err error, sent []gokafka.Message) bool {
+	if b.responseHandler == nil {
+		return err == nil && len(sent) > 0
+	}
+
+	switch e := err.(type) { //nolint:errorLint
+	case nil:
+		if len(sent) > 0 {
+			b.handleResponseSuccessFor(sent)
+		}
+		return len(sent) > 0 || b.skipOversizedMessages
+	case gokafka.WriteErrors:
+		return b.handleWriteError(e, sent)
+	case gokafka.MessageTooLargeError:
+		return b.handleMessageTooLargeError(e)
+	default:
+		b.handleResponseErrorFor(sent, e)
+		logger.Error("batch producer flush", "error", err)
+		return false
 	}
 }
-func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors) {
+
+func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors, sent []gokafka.Message) bool {
+	hasSuccess := false
+	hasBlockingError := false
+
 	for i := range writeErrors {
 		if writeErrors[i] != nil {
+			b.metric.IncrementErrOp(sent[i].Topic)
 			b.responseHandler.OnError(&kafka.ResponseHandlerContext{
-				Message: &b.messages[i],
+				Message: &sent[i],
 				Err:     writeErrors[i],
 			})
-		} else {
-			b.responseHandler.OnSuccess(&kafka.ResponseHandlerContext{
-				Message: &b.messages[i],
-				Err:     nil,
-			})
+			if !b.skipOversizedMessages || !kafka.IsMessageTooLarge(writeErrors[i]) {
+				hasBlockingError = true
+			}
+			continue
 		}
+
+		hasSuccess = true
+		b.responseHandler.OnSuccess(&kafka.ResponseHandlerContext{
+			Message: &sent[i],
+			Err:     nil,
+		})
 	}
+
+	if hasSuccess && !hasBlockingError {
+		return true
+	}
+	return false
 }
 
-func (b *Batch) handleResponseError(err error) {
-	for _, msg := range b.messages {
-		b.metric.IncrementErrOp(msg.Topic)
+func (b *Batch) handleResponseErrorFor(sent []gokafka.Message, err error) {
+	for i := range sent {
+		b.metric.IncrementErrOp(sent[i].Topic)
 		b.responseHandler.OnError(&kafka.ResponseHandlerContext{
-			Message: &msg,
+			Message: &sent[i],
 			Err:     err,
 		})
 	}
 }
 
-func (b *Batch) handleResponseSuccess() {
-	for _, msg := range b.messages {
-		b.metric.IncrementSuccessOp(msg.Topic)
+func (b *Batch) handleResponseSuccessFor(sent []gokafka.Message) {
+	for i := range sent {
+		b.metric.IncrementSuccessOp(sent[i].Topic)
 		b.responseHandler.OnSuccess(&kafka.ResponseHandlerContext{
-			Message: &msg,
+			Message: &sent[i],
 			Err:     nil,
 		})
 	}
 }
 
-func (b *Batch) handleMessageTooLargeError(mTooLargeError gokafka.MessageTooLargeError) {
+func (b *Batch) handleMessageTooLargeError(mTooLargeError gokafka.MessageTooLargeError) bool {
+	if b.skipOversizedMessages {
+		b.notifyOversizedSkipped(&mTooLargeError.Message)
+
+		remaining := mTooLargeError.Remaining
+		if b.maxMessageBytes > 0 {
+			remaining = b.removeOversizedMessages(remaining)
+		}
+		if len(remaining) == 0 {
+			return true
+		}
+
+		err := b.Writer.WriteMessages(context.Background(), remaining...)
+		return b.handleFlushResult(err, remaining)
+	}
+
+	b.metric.IncrementErrOp(mTooLargeError.Message.Topic)
 	b.responseHandler.OnError(&kafka.ResponseHandlerContext{
 		Message: &mTooLargeError.Message,
 		Err:     mTooLargeError,
 	})
+	return false
 }
 
 func messageSize(m *gokafka.Message) int64 {

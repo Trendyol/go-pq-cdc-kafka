@@ -62,7 +62,7 @@ func NewConnector(ctx context.Context, config config.Connector, handler Handler,
 	kafkaConnector.client = kafkaClient
 
 	if kafkaConnector.responseHandler == nil {
-		kafkaConnector.responseHandler = &kafka.DefaultResponseHandler{}
+		kafkaConnector.responseHandler = kafka.NewDefaultResponseHandler(kafkaConnector.cfg.Kafka.SkipOversizedMessages)
 	}
 
 	kafkaConnector.producer, err = producer.NewProducer(kafkaClient, kafkaConnector.cfg, kafkaConnector.responseHandler, pqCDC)
