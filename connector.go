@@ -34,6 +34,8 @@ type connector struct {
 	handler         Handler
 	cfg             *config.Connector
 	readyCh         chan struct{}
+	closedCh        chan struct{}
+	closeOnce       sync.Once
 	metrics         []prometheus.Collector
 }
 
@@ -41,9 +43,10 @@ func NewConnector(ctx context.Context, config config.Connector, handler Handler,
 	config.SetDefault()
 
 	kafkaConnector := &connector{
-		cfg:     &config,
-		handler: handler,
-		readyCh: make(chan struct{}, 1),
+		cfg:      &config,
+		handler:  handler,
+		readyCh:  make(chan struct{}, 1),
+		closedCh: make(chan struct{}),
 	}
 
 	Options(options).Apply(kafkaConnector)
@@ -85,7 +88,7 @@ func (c *connector) Start(ctx context.Context) {
 		c.producer.StartBatch()
 
 		// Signal ready immediately since there's no CDC to wait for
-		c.readyCh <- struct{}{}
+		c.signalReady()
 
 		// Start CDC synchronously - it will execute snapshot and return
 		c.cdc.Start(ctx)
@@ -101,7 +104,7 @@ func (c *connector) Start(ctx context.Context) {
 		}
 		logger.Info("bulk process started")
 		c.producer.StartBatch()
-		c.readyCh <- struct{}{}
+		c.signalReady()
 	}()
 	c.cdc.Start(ctx)
 }
@@ -110,19 +113,29 @@ func (c *connector) WaitUntilReady(ctx context.Context) error {
 	select {
 	case <-c.readyCh:
 		return nil
+	case <-c.closedCh:
+		return errors.New("connector closed")
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
 
 func (c *connector) Close() {
-	if !isClosed(c.readyCh) {
-		close(c.readyCh)
-	}
+	c.closeOnce.Do(func() {
+		close(c.closedCh)
 
-	c.cdc.Close()
-	if err := c.producer.Close(); err != nil {
-		logger.Error("kafka producer close", "error", err)
+		c.cdc.Close()
+		if err := c.producer.Close(); err != nil {
+			logger.Error("kafka producer close", "error", err)
+		}
+	})
+}
+
+func (c *connector) signalReady() {
+	select {
+	case <-c.closedCh:
+		return
+	case c.readyCh <- struct{}{}:
 	}
 }
 
@@ -266,14 +279,4 @@ func (c *connector) findParentTable(tableNamespace, tableName string) string {
 
 func (c *connector) getFullTableName(tableNamespace, tableName string) string {
 	return fmt.Sprintf("%s.%s", tableNamespace, tableName)
-}
-
-func isClosed[T any](ch <-chan T) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-	}
-
-	return false
 }
