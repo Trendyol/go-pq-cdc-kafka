@@ -3,18 +3,15 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"time"
 
 	cdccfg "github.com/Trendyol/go-pq-cdc/config"
 	"github.com/Trendyol/go-pq-cdc/pq/publication"
 )
 
-// ConsulConfig holds deployment-specific overrides supplied via a JSON file
-// (typically rendered from Consul / TBP).
-//
-// YAML at resources/config.yml carries process-level defaults; this JSON
-// overlays per-deployment connection details and secrets.
 type ConsulConfig struct {
 	TableKeyMapping              map[string]string `json:"tableKeyMapping,omitempty"`
 	TableTopicMapping            map[string]string `json:"tableTopicMapping"`
@@ -23,16 +20,18 @@ type ConsulConfig struct {
 	SnapshotEnabled              *bool             `json:"snapshotEnabled,omitempty"`
 	PublicationCreateIfNotExists *bool             `json:"publicationCreateIfNotExists,omitempty"`
 	SlotCreateIfNotExists        *bool             `json:"slotCreateIfNotExists,omitempty"`
+	KafkaRequiredAcks            *int              `json:"kafkaRequiredAcks,omitempty"`
+	KafkaCompression             *int8             `json:"kafkaCompression,omitempty"`
 	PostgresDatabase             string            `json:"postgresDatabase"`
 	PostgresUsername             string            `json:"postgresUsername"`
 	KeyField                     string            `json:"keyField,omitempty"`
 	PublicationName              string            `json:"publicationName"`
 	SnapshotMode                 string            `json:"snapshotMode,omitempty"`
-	PostgresTbpSecretPath        string            `json:"postgresTbpSecretPath"`
+	PostgresSecretPath           string            `json:"postgresSecretPath"`
 	SlotName                     string            `json:"slotName"`
 	KafkaScramUsername           string            `json:"kafkaScramUsername"`
 	KafkaScramPassword           string            `json:"kafkaScramPassword"`
-	KafkaTbpSecretPath           string            `json:"kafkaTbpSecretPath"`
+	KafkaSecretPath              string            `json:"kafkaSecretPath"`
 	KafkaRootCAPath              string            `json:"kafkaRootCAPath"`
 	KafkaInterCAPath             string            `json:"kafkaInterCAPath"`
 	KafkaClientID                string            `json:"kafkaClientID"`
@@ -42,11 +41,9 @@ type ConsulConfig struct {
 	KafkaBrokers                 []string          `json:"kafkaBrokers"`
 	Tables                       []ConsulTable     `json:"tables,omitempty"`
 	KafkaProducerBatchSize       int               `json:"kafkaProducerBatchSize,omitempty"`
-	KafkaRequiredAcks            int               `json:"kafkaRequiredAcks,omitempty"`
 	SnapshotChunkSize            int64             `json:"snapshotChunkSize,omitempty"`
 	SlotActivityCheckerInterval  int               `json:"slotActivityCheckerInterval,omitempty"`
 	PostgresPort                 int               `json:"postgresPort,omitempty"`
-	KafkaCompression             int8              `json:"kafkaCompression,omitempty"`
 }
 
 type ConsulTable struct {
@@ -56,7 +53,7 @@ type ConsulTable struct {
 	Partitioned     bool   `json:"partitioned,omitempty"`
 }
 
-type TbpSecret struct {
+type FileSecret struct {
 	Username *string `json:"username"`
 	Password *string `json:"password"`
 }
@@ -76,20 +73,20 @@ func LoadConsulConfig(path string) (*ConsulConfig, error) {
 	return &c, nil
 }
 
-func LoadTbpSecret(path string) (*TbpSecret, error) {
+func LoadFileSecret(path string) (*FileSecret, error) {
 	if path == "" {
 		return nil, nil
 	}
 	file, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read tbp secret %s: %w", path, err)
+		return nil, fmt.Errorf("read secret %s: %w", path, err)
 	}
-	var s TbpSecret
+	var s FileSecret
 	if err := json.Unmarshal(file, &s); err != nil {
-		return nil, fmt.Errorf("unmarshal tbp secret %s: %w", path, err)
+		return nil, fmt.Errorf("unmarshal secret %s: %w", path, err)
+	}
+	if s.Username == nil || *s.Username == "" || s.Password == nil || *s.Password == "" {
+		return nil, fmt.Errorf("secret %s: username and password are required", path)
 	}
 	return &s, nil
 }
@@ -101,7 +98,9 @@ func (c *Connector) applyConsulOverrides(cc *ConsulConfig) error {
 	if err := c.applyPostgresOverrides(cc); err != nil {
 		return err
 	}
-	c.applyPublicationOverrides(cc)
+	if err := c.applyPublicationOverrides(cc); err != nil {
+		return err
+	}
 	c.applySlotSnapshotOverrides(cc)
 	if err := c.applyKafkaOverrides(cc); err != nil {
 		return err
@@ -111,11 +110,11 @@ func (c *Connector) applyConsulOverrides(cc *ConsulConfig) error {
 }
 
 func (c *Connector) applyPostgresOverrides(cc *ConsulConfig) error {
-	secret, err := LoadTbpSecret(cc.PostgresTbpSecretPath)
+	secret, err := LoadFileSecret(cc.PostgresSecretPath)
 	if err != nil {
 		return err
 	}
-	if secret != nil && secret.Username != nil && secret.Password != nil {
+	if secret != nil {
 		c.CDC.Username = *secret.Username
 		c.CDC.Password = *secret.Password
 	} else {
@@ -126,11 +125,16 @@ func (c *Connector) applyPostgresOverrides(cc *ConsulConfig) error {
 			c.CDC.Password = cc.PostgresPassword
 		}
 	}
-	if cc.PostgresHost != "" {
-		c.CDC.Host = cc.PostgresHost
+
+	host, port, err := splitPostgresHostPort(cc.PostgresHost, cc.PostgresPort)
+	if err != nil {
+		return err
 	}
-	if cc.PostgresPort > 0 {
-		c.CDC.Port = cc.PostgresPort
+	if host != "" {
+		c.CDC.Host = host
+	}
+	if port > 0 {
+		c.CDC.Port = port
 	}
 	if cc.PostgresDatabase != "" {
 		c.CDC.Database = cc.PostgresDatabase
@@ -138,7 +142,25 @@ func (c *Connector) applyPostgresOverrides(cc *ConsulConfig) error {
 	return nil
 }
 
-func (c *Connector) applyPublicationOverrides(cc *ConsulConfig) {
+func splitPostgresHostPort(host string, port int) (string, int, error) {
+	if host == "" {
+		return host, port, nil
+	}
+	h, pStr, err := net.SplitHostPort(host)
+	if err != nil {
+		return host, port, nil
+	}
+	p, err := strconv.Atoi(pStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("postgresHost port: %w", err)
+	}
+	if port > 0 && port != p {
+		return "", 0, fmt.Errorf("postgresHost includes port %d but postgresPort is %d", p, port)
+	}
+	return h, p, nil
+}
+
+func (c *Connector) applyPublicationOverrides(cc *ConsulConfig) error {
 	if cc.PublicationName != "" {
 		c.CDC.Publication.Name = cc.PublicationName
 	}
@@ -147,8 +169,12 @@ func (c *Connector) applyPublicationOverrides(cc *ConsulConfig) {
 	}
 	if len(cc.PublicationOperations) > 0 {
 		ops := make(publication.Operations, 0, len(cc.PublicationOperations))
-		for _, op := range cc.PublicationOperations {
-			ops = append(ops, publication.Operation(op))
+		for _, raw := range cc.PublicationOperations {
+			op := publication.Operation(raw)
+			if err := op.Validate(); err != nil {
+				return fmt.Errorf("invalid publication operation %q: %w", raw, err)
+			}
+			ops = append(ops, op)
 		}
 		c.CDC.Publication.Operations = ops
 	}
@@ -164,6 +190,7 @@ func (c *Connector) applyPublicationOverrides(cc *ConsulConfig) {
 		}
 		c.CDC.Publication.Tables = tables
 	}
+	return nil
 }
 
 func (c *Connector) applySlotSnapshotOverrides(cc *ConsulConfig) {
@@ -200,11 +227,11 @@ func (c *Connector) applyKafkaOverrides(cc *ConsulConfig) error {
 	if cc.KafkaProducerBatchSize > 0 {
 		c.Kafka.ProducerBatchSize = cc.KafkaProducerBatchSize
 	}
-	if cc.KafkaRequiredAcks != 0 {
-		c.Kafka.RequiredAcks = cc.KafkaRequiredAcks
+	if cc.KafkaRequiredAcks != nil {
+		c.Kafka.RequiredAcks = *cc.KafkaRequiredAcks
 	}
-	if cc.KafkaCompression != 0 {
-		c.Kafka.Compression = cc.KafkaCompression
+	if cc.KafkaCompression != nil {
+		c.Kafka.Compression = *cc.KafkaCompression
 	}
 	if cc.KafkaSecureConnection != nil {
 		c.Kafka.SecureConnection = *cc.KafkaSecureConnection
@@ -219,11 +246,11 @@ func (c *Connector) applyKafkaOverrides(cc *ConsulConfig) error {
 		c.Kafka.InterCAPath = cc.KafkaInterCAPath
 	}
 
-	secret, err := LoadTbpSecret(cc.KafkaTbpSecretPath)
+	secret, err := LoadFileSecret(cc.KafkaSecretPath)
 	if err != nil {
 		return err
 	}
-	if secret != nil && secret.Username != nil && secret.Password != nil {
+	if secret != nil {
 		c.Kafka.ScramUsername = *secret.Username
 		c.Kafka.ScramPassword = *secret.Password
 	} else {

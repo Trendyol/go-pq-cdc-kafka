@@ -118,7 +118,7 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 ## Config-based deploy
 
 For multiple Kubernetes apps from one image, use YAML + Consul overlay instead of
-a per-team Go handler. See [config-based TBP deployment](./tbp_deployment.md).
+a per-team Go handler. See [config-based deployment](./config_deployment.md).
 
 Production publications and slots should be created ahead of time; keep
 `publicationCreateIfNotExists` and `slotCreateIfNotExists` **false** in Consul.

@@ -101,15 +101,16 @@ For detailed configuration and usage, see the [snapshot example](./example/snaps
 
 > ### ⚠️ For production usage check the [production tutorial](./docs/production_tutorial.md) doc
 
-> ### ⚠️ For TBP / Kubernetes (one image, many deployments) see [config-based deployment](./docs/tbp_deployment.md)
+> ### ⚠️ For Kubernetes (one image, many deployments) see [config-based deployment](./docs/config_deployment.md)
 
 > ### ⚠️ For other usages check the dockerfile and code at [examples](./example).
 
 ### Config-based connector (recommended for k8s)
 
-A single binary reads process defaults from YAML and per-deployment overrides from
-`$CONFIG_PATH` (default `config/config.json`). No custom `Handler` is required for
-the common INSERT/UPDATE/DELETE/SNAPSHOT → JSON mapping.
+A single binary reads process defaults from YAML (`CONFIG_YAML_PATH`) and
+per-deployment overrides from `$CDC_CONSUL_CONFIG_PATH` (fallback `$CONFIG_PATH`,
+default `config/config.json`). No custom `Handler` is required for the common
+INSERT/UPDATE/DELETE/SNAPSHOT → JSON mapping.
 
 ```bash
 export CONFIG_YAML_PATH=./example/simple/config.yml
@@ -120,13 +121,14 @@ go run ./cmd/connector
 connector, err := cdc.NewConnectorBuilder("./config.yml").Build(ctx)
 ```
 
-Optional Consul/TBP JSON overlays host, credentials, publication, slot, tables,
+Optional Consul JSON overlays host, credentials, publication, slot, tables,
 and `tableTopicMapping`. Empty JSON fields leave YAML defaults in place.
 
 The built-in mapper writes JSON like the simple example (`operation` field,
 stringified `mapper.keyField`, headers `operation` / `table` / `source`).
 
-Custom Go `Handler` is unchanged for edge cases:
+Custom mapping: `NewConnectorBuilder(path).SetHandler(Handler).Build(ctx)` or
+the library API:
 
 ```go
 cdc.NewConnector(ctx, cfg, Handler)

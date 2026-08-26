@@ -14,9 +14,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ConsulConfigPathEnv is the env var for the deployment JSON path.
-// If unset, defaults to "config/config.json". A missing file means no overlay.
-const ConsulConfigPathEnv = "CONFIG_PATH"
+const (
+	ConsulConfigPathEnv       = "CDC_CONSUL_CONFIG_PATH"
+	legacyConsulConfigPathEnv = "CONFIG_PATH"
+	defaultConsulConfigPath   = "config/config.json"
+)
 
 var envPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 
@@ -128,8 +130,6 @@ func (c *Connector) SetDefault() {
 	}
 }
 
-// Load reads YAML from path, expands ${ENV} references, and overlays a Consul/TBP
-// JSON file when present at $CONFIG_PATH (default config/config.json).
 func Load(path string) (*Connector, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -151,12 +151,16 @@ func Load(path string) (*Connector, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	cfg.SetDefault()
 	if err := cfg.applyConsulOverrides(consul); err != nil {
 		return nil, err
 	}
-
-	cfg.SetDefault()
+	cfg.CDC.Slot.SlotActivityCheckerInterval = millisecondCountDuration(cfg.CDC.Slot.SlotActivityCheckerInterval)
 	if err := cfg.loadCerts(); err != nil {
+		return nil, err
+	}
+	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
@@ -166,22 +170,22 @@ func consulPath() string {
 	if p := os.Getenv(ConsulConfigPathEnv); p != "" {
 		return p
 	}
-	return "config/config.json"
+	if p := os.Getenv(legacyConsulConfigPathEnv); p != "" {
+		return p
+	}
+	return defaultConsulConfigPath
 }
 
 func expandEnv(raw []byte) []byte {
-	out := string(raw)
-	for _, m := range envPattern.FindAllStringSubmatch(out, -1) {
-		if val, ok := os.LookupEnv(m[1]); ok {
-			out = strings.ReplaceAll(out, "${"+m[1]+"}", val)
+	return []byte(envPattern.ReplaceAllStringFunc(string(raw), func(match string) string {
+		name := match[2 : len(match)-1]
+		if val, ok := os.LookupEnv(name); ok {
+			return val
 		}
-	}
-	return []byte(out)
+		return ""
+	}))
 }
 
-// go-pq-cdc stores slotActivityCheckerInterval as time.Duration but treats the
-// numeric value as milliseconds (time.Millisecond * interval). YAML integers
-// cannot unmarshal into time.Duration, so coerce 3000 → "3000ns".
 func coerceMillisecondDurations(raw []byte) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
@@ -214,6 +218,26 @@ func coerceIntDuration(n *yaml.Node, key string) {
 			coerceIntDuration(v, key)
 		}
 	}
+}
+
+func millisecondCountDuration(d time.Duration) time.Duration {
+	if d >= time.Millisecond {
+		return d / time.Millisecond
+	}
+	return d
+}
+
+func (c *Connector) validate() error {
+	if strings.TrimSpace(c.CDC.Username) == "" || c.CDC.Password == "" {
+		return fmt.Errorf("cdc username and password are required")
+	}
+	if len(c.CDC.Publication.Tables) == 0 {
+		return fmt.Errorf("cdc.publication.tables is empty")
+	}
+	if len(c.Kafka.Brokers) == 0 {
+		return fmt.Errorf("kafka.brokers is empty")
+	}
+	return nil
 }
 
 func (c *Connector) loadCerts() error {

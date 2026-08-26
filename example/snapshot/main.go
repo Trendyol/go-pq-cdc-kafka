@@ -23,7 +23,7 @@ import (
 	All this data will be captured via snapshot first, then any new changes
 	will be captured via CDC.
 
-	Kafka headers (configured in config.yml mapper.headers):
+	Kafka headers (default handler):
 	  - operation: SNAPSHOT, INSERT, UPDATE, or DELETE
 	  - table: fully qualified table name
 	  - source: initial-snapshot or cdc

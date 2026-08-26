@@ -1,6 +1,6 @@
-# Config-based TBP / Kubernetes deployment
+# Config-based Kubernetes deployment
 
-Same image, one Consul/TBP `config.json` per pipeline. Do not create a new Go
+Same image, one Consul `config.json` per pipeline. Do not create a new Go
 repository for each PostgreSQL → Kafka hat.
 
 Slot is exclusive: **max 2 replicas** per `slotName`. Production publications
@@ -70,8 +70,9 @@ Changing `slotName` creates a new replication slot; it does not replay the old o
 
 ```json
 {
-  "postgresTbpSecretPath": "config/postgres-secret.json",
-  "postgresHost": "postgres.example:5432",
+  "postgresSecretPath": "config/postgres-secret.json",
+  "postgresHost": "postgres.example",
+  "postgresPort": 5432,
   "postgresDatabase": "orders",
   "publicationName": "cdc_publication_orders",
   "publicationCreateIfNotExists": false,
@@ -85,23 +86,31 @@ Changing `slotName` creates a new replication slot; it does not replay the old o
   },
   "keyField": "id",
   "kafkaBrokers": ["broker1:9092", "broker2:9092"],
-  "kafkaTbpSecretPath": "config/kafka-secret.json",
+  "kafkaSecretPath": "config/kafka-secret.json",
   "kafkaSecureConnection": true,
   "kafkaRootCAPath": "/etc/ssl/certs/root.pem",
   "kafkaInterCAPath": "/etc/ssl/certs/inter.pem"
 }
 ```
 
-TBP secret JSON shape: `{"username":"...","password":"..."}`.
+Secret file JSON shape: `{"username":"...","password":"..."}`.
 
 ## 3. Scale
 
 After Consul is populated, set replicas to `1` (or `2` for active/passive failover).
 
+TCP probes use the metrics port (`cdc.metric.port`, default 8080). Keep
+`initialDelaySeconds` high enough for the metrics server to bind.
+
+Host and port are separate fields (`postgresHost` / `postgresPort`). A host
+value of `postgres.example:5432` is also accepted and split.
+
 Local overlay:
 
 ```bash
 export CONFIG_YAML_PATH=./resources/config.yml
-export CONFIG_PATH=./config/config.json
+export CDC_CONSUL_CONFIG_PATH=./resources/testdata/consul-overlay.example.json
 go run ./cmd/connector
 ```
+
+`CONFIG_PATH` is still read if `CDC_CONSUL_CONFIG_PATH` is unset.

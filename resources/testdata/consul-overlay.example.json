@@ -1,0 +1,22 @@
+{
+  "postgresSecretPath": "config/postgres-secret.json",
+  "postgresHost": "postgres.example",
+  "postgresPort": 5432,
+  "postgresDatabase": "orders",
+  "publicationName": "cdc_publication_orders",
+  "publicationCreateIfNotExists": false,
+  "slotName": "cdc_slot_orders",
+  "slotCreateIfNotExists": false,
+  "tables": [
+    {"name": "orders", "schema": "public", "replicaIdentity": "FULL"}
+  ],
+  "tableTopicMapping": {
+    "public.orders": "team.orders.cdc"
+  },
+  "keyField": "id",
+  "kafkaBrokers": ["broker1:9092", "broker2:9092"],
+  "kafkaSecretPath": "config/kafka-secret.json",
+  "kafkaSecureConnection": true,
+  "kafkaRootCAPath": "/etc/ssl/certs/root.pem",
+  "kafkaInterCAPath": "/etc/ssl/certs/inter.pem"
+}
