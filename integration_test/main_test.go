@@ -67,7 +67,7 @@ func setupTestInfrastructure(ctx context.Context) (*TestInfrastructure, error) {
 			"postgres",
 			"-c", "wal_level=logical",
 			"-c", "max_wal_senders=10",
-			"-c", "max_replication_slots=10",
+			"-c", "max_replication_slots=20",
 		},
 		WaitingFor: wait.ForLog("database system is ready to accept connections").
 			WithOccurrence(2).
