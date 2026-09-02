@@ -22,7 +22,7 @@ import (
 
 func TestConnector_WaitUntilReadyAfterClose(t *testing.T) {
 	ctx := context.Background()
-	connector := newLifecycleConnector(t, ctx, "cdc_slot_lifecycle_closed", "cdc_publication_lifecycle_closed", "users_lifecycle_closed")
+	connector := newLifecycleConnector(ctx, t, "cdc_slot_lifecycle_closed", "cdc_publication_lifecycle_closed", "users_lifecycle_closed")
 
 	go connector.Start(ctx)
 
@@ -42,7 +42,7 @@ func TestConnector_WaitUntilReadyAfterClose(t *testing.T) {
 
 func TestConnector_CloseIsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	connector := newLifecycleConnector(t, ctx, "cdc_slot_lifecycle_idempotent", "cdc_publication_lifecycle_idempotent", "users_lifecycle_idempotent")
+	connector := newLifecycleConnector(ctx, t, "cdc_slot_lifecycle_idempotent", "cdc_publication_lifecycle_idempotent", "users_lifecycle_idempotent")
 
 	go connector.Start(ctx)
 
@@ -58,12 +58,11 @@ func TestConnector_CloseIsIdempotent(t *testing.T) {
 
 func TestConnector_CloseBeforeWaitUntilReadyDoesNotHang(t *testing.T) {
 	ctx := context.Background()
-	connector := newLifecycleConnector(t, ctx, "cdc_slot_lifecycle_early_close", "cdc_publication_lifecycle_early_close", "users_lifecycle_early_close")
+	connector := newLifecycleConnector(ctx, t, "cdc_slot_lifecycle_early_close", "cdc_publication_lifecycle_early_close", "users_lifecycle_early_close")
 
 	go connector.Start(ctx)
 
-	// Close around startup; previously isClosed could drain ready and hang WaitUntilReady.
-	time.Sleep(100 * time.Millisecond)
+	waitForConnectorReady(ctx, t, connector)
 	connector.Close()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -74,16 +73,11 @@ func TestConnector_CloseBeforeWaitUntilReadyDoesNotHang(t *testing.T) {
 	elapsed := time.Since(started)
 
 	assert.Less(t, elapsed, 3500*time.Millisecond, "WaitUntilReady must not hang after Close")
-	// Depending on Start/Close race, ready may already have been observed or closed wins.
-	if err != nil {
-		assert.True(t,
-			err.Error() == "connector closed" || waitCtx.Err() != nil,
-			"unexpected error: %v", err,
-		)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connector closed")
 }
 
-func newLifecycleConnector(t *testing.T, ctx context.Context, slotName, publicationName, tableName string) cdc.Connector {
+func newLifecycleConnector(ctx context.Context, t *testing.T, slotName, publicationName, tableName string) cdc.Connector {
 	t.Helper()
 
 	db, err := sql.Open("postgres", fmt.Sprintf(
@@ -147,7 +141,7 @@ func newLifecycleConnector(t *testing.T, ctx context.Context, slotName, publicat
 		},
 	}
 
-	connector, err := cdc.NewConnector(ctx, cfg, func(msg *cdc.Message) []kafka.Message {
+	connector, err := cdc.NewConnector(ctx, cfg, func(_ *cdc.Message) []kafka.Message {
 		return nil
 	})
 	require.NoError(t, err)

@@ -26,7 +26,6 @@ type Connector interface {
 }
 
 type connector struct {
-	partitionCache  sync.Map
 	cdc             cdc.Connector
 	responseHandler kafka.ResponseHandler
 	client          kafka.Client
@@ -35,8 +34,9 @@ type connector struct {
 	cfg             *config.Connector
 	readyCh         chan struct{}
 	closedCh        chan struct{}
-	closeOnce       sync.Once
+	partitionCache  sync.Map
 	metrics         []prometheus.Collector
+	closeOnce       sync.Once
 }
 
 func NewConnector(ctx context.Context, config config.Connector, handler Handler, options ...Option) (Connector, error) {
@@ -97,19 +97,42 @@ func (c *connector) Start(ctx context.Context) {
 	}
 
 	// Normal CDC mode: async flow
-	go func() {
-		logger.Info("waiting for connector start...")
-		if err := c.cdc.WaitUntilReady(ctx); err != nil {
-			panic(err)
+	go c.runUntilReady(ctx)
+	go c.runCDC(ctx)
+}
+
+func (c *connector) runUntilReady(ctx context.Context) {
+	logger.Info("waiting for connector start...")
+	if err := c.cdc.WaitUntilReady(ctx); err != nil {
+		if c.isClosed() {
+			return
 		}
-		logger.Info("bulk process started")
-		c.producer.StartBatch()
-		c.signalReady()
+		panic(err)
+	}
+	if c.isClosed() {
+		return
+	}
+	logger.Info("bulk process started")
+	c.producer.StartBatch()
+	c.signalReady()
+}
+
+func (c *connector) runCDC(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil && !c.isClosed() {
+			panic(r)
+		}
 	}()
 	c.cdc.Start(ctx)
 }
 
 func (c *connector) WaitUntilReady(ctx context.Context) error {
+	select {
+	case <-c.closedCh:
+		return errors.New("connector closed")
+	default:
+	}
+
 	select {
 	case <-c.readyCh:
 		return nil
@@ -117,6 +140,15 @@ func (c *connector) WaitUntilReady(ctx context.Context) error {
 		return errors.New("connector closed")
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+func (c *connector) isClosed() bool {
+	select {
+	case <-c.closedCh:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -132,6 +164,10 @@ func (c *connector) Close() {
 }
 
 func (c *connector) signalReady() {
+	if c.isClosed() {
+		return
+	}
+
 	select {
 	case <-c.closedCh:
 		return
