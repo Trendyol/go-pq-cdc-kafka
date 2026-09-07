@@ -10,6 +10,8 @@ github.com/Microsoft/hcsshim v0.11.4 h1:68vKo2VN8DE9AdN4tnkWnmdhqdbpUFM8OF3Airm7
 github.com/Microsoft/hcsshim v0.11.4/go.mod h1:smjE4dvqPX9Zldna+t5FG3rnoHhaB7QYxPRqGcpAD9w=
 github.com/Trendyol/go-pq-cdc v1.11.14 h1:wOGCSYl8N7lmWoC4wXgv1KN2Wk1alzQ4+PHzBC3HVDI=
 github.com/Trendyol/go-pq-cdc v1.11.14/go.mod h1:a0Z9SANfTzs/5tQyBq2cUCkzyW2rgDrdpQuegKKSx34=
+github.com/Trendyol/go-pq-cdc v1.11.15-0.20260907082307-09418bfc006f h1:zETDm729fOlPzOYI/4yOmfoRUDWuy9FkHIt8s/LmRiI=
+github.com/Trendyol/go-pq-cdc v1.11.15-0.20260907082307-09418bfc006f/go.mod h1:a0Z9SANfTzs/5tQyBq2cUCkzyW2rgDrdpQuegKKSx34=
 github.com/avast/retry-go/v4 v4.6.0 h1:K9xNA+KeB8HHc2aWFuLb25Offp+0iVRXEvFx8IinRJA=
 github.com/avast/retry-go/v4 v4.6.0/go.mod h1:gvWlPhBVsvBbLkVGDg/KwvBv0bEkCOLRRSHKIr2PyOE=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

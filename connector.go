@@ -12,7 +12,6 @@ import (
 	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
 	"github.com/Trendyol/go-pq-cdc-kafka/kafka/producer"
 	"github.com/Trendyol/go-pq-cdc/logger"
-	"github.com/Trendyol/go-pq-cdc/pq/message/format"
 	"github.com/Trendyol/go-pq-cdc/pq/replication"
 	"github.com/Trendyol/go-pq-cdc/pq/timescaledb"
 	"github.com/pkg/errors"
@@ -127,17 +126,8 @@ func (c *connector) Close() {
 }
 
 func (c *connector) listener(ctx *replication.ListenerContext) {
-	var msg *Message
-	switch m := ctx.Message.(type) {
-	case *format.Insert:
-		msg = NewInsertMessage(m)
-	case *format.Update:
-		msg = NewUpdateMessage(m)
-	case *format.Delete:
-		msg = NewDeleteMessage(m)
-	case *format.Snapshot:
-		msg = NewSnapshotMessage(m)
-	default:
+	msg := newMessage(ctx.Message, ctx.CommitLSN)
+	if msg == nil {
 		return
 	}
 

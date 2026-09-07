@@ -3,6 +3,7 @@ package cdc
 import (
 	"time"
 
+	"github.com/Trendyol/go-pq-cdc/pq"
 	"github.com/Trendyol/go-pq-cdc/pq/message/format"
 )
 
@@ -10,6 +11,7 @@ type Message struct {
 	EventTime      time.Time
 	TableName      string
 	TableNamespace string
+	CommitLSN      pq.LSN
 
 	OldData map[string]any
 	NewData map[string]any
@@ -59,6 +61,25 @@ func NewSnapshotMessage(m *format.Snapshot) *Message {
 		NewData:        m.Data,
 		Type:           SnapshotMessage,
 	}
+}
+
+func newMessage(m any, commitLSN pq.LSN) *Message {
+	var msg *Message
+	switch m := m.(type) {
+	case *format.Insert:
+		msg = NewInsertMessage(m)
+	case *format.Update:
+		msg = NewUpdateMessage(m)
+	case *format.Delete:
+		msg = NewDeleteMessage(m)
+	case *format.Snapshot:
+		msg = NewSnapshotMessage(m)
+	default:
+		return nil
+	}
+
+	msg.CommitLSN = commitLSN
+	return msg
 }
 
 type MessageType string
