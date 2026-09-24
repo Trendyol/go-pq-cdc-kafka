@@ -205,8 +205,8 @@ func (b *Batch) handleFlushResult(err error, sent []gokafka.Message) bool {
 }
 
 func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors, sent []gokafka.Message) bool {
-	hasSuccess := false
 	hasBlockingError := false
+	succeeded := make([]*gokafka.Message, 0, len(sent))
 
 	for i := range writeErrors {
 		if writeErrors[i] != nil {
@@ -221,17 +221,12 @@ func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors, sent []gokafka
 			continue
 		}
 
-		hasSuccess = true
-		b.responseHandler.OnSuccess(&kafka.ResponseHandlerContext{
-			Message: &sent[i],
-			Err:     nil,
-		})
+		succeeded = append(succeeded, &sent[i])
 	}
 
-	if hasSuccess && !hasBlockingError {
-		return true
-	}
-	return false
+	b.notifySuccess(succeeded)
+
+	return len(succeeded) > 0 && !hasBlockingError
 }
 
 func (b *Batch) handleResponseErrorFor(sent []gokafka.Message, err error) {
@@ -245,10 +240,32 @@ func (b *Batch) handleResponseErrorFor(sent []gokafka.Message, err error) {
 }
 
 func (b *Batch) handleResponseSuccessFor(sent []gokafka.Message) {
+	succeeded := make([]*gokafka.Message, len(sent))
 	for i := range sent {
-		b.metric.IncrementSuccessOp(sent[i].Topic)
+		succeeded[i] = &sent[i]
+	}
+	b.notifySuccess(succeeded)
+}
+
+// notifySuccess dispatches successfully written messages to the response
+// handler: once via OnBatchSuccess when the handler implements
+// kafka.BatchResponseHandler, otherwise once per message via OnSuccess.
+func (b *Batch) notifySuccess(succeeded []*gokafka.Message) {
+	for _, m := range succeeded {
+		b.metric.IncrementSuccessOp(m.Topic)
+	}
+	if len(succeeded) == 0 {
+		return
+	}
+
+	if bh, ok := b.responseHandler.(kafka.BatchResponseHandler); ok {
+		bh.OnBatchSuccess(succeeded)
+		return
+	}
+
+	for _, m := range succeeded {
 		b.responseHandler.OnSuccess(&kafka.ResponseHandlerContext{
-			Message: &sent[i],
+			Message: m,
 			Err:     nil,
 		})
 	}
