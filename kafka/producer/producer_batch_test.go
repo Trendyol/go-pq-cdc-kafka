@@ -10,6 +10,7 @@ import (
 
 	cdcKafka "github.com/Trendyol/go-pq-cdc-kafka/kafka"
 	cdcLogger "github.com/Trendyol/go-pq-cdc/logger"
+	"github.com/Trendyol/go-pq-cdc/pq/replication"
 	"github.com/prometheus/client_golang/prometheus"
 	gokafka "github.com/segmentio/kafka-go"
 )
@@ -117,6 +118,7 @@ func newTestBatch(handler cdcKafka.ResponseHandler) *Batch {
 		batchTickerDuration: time.Hour,
 		batchLimit:          100,
 		batchBytes:          1 << 20,
+		closing:             make(chan struct{}),
 	}
 }
 
@@ -134,12 +136,17 @@ func TestFlushMessages_FailedWrite_RetriesUntilSuccessThenAcks(t *testing.T) {
 		return nil
 	}
 
-	batch.AddEvents(nil, []gokafka.Message{
+	acked := 0
+	ctx := &replication.ListenerContext{Ack: func() error { acked++; return nil }}
+	batch.AddEvents(ctx, []gokafka.Message{
 		{Topic: "test.topic", Value: []byte("a")},
 		{Topic: "test.topic", Value: []byte("b")},
 	}, time.Now(), true)
 	batch.FlushMessages()
 
+	if acked != 1 {
+		t.Fatalf("expected exactly one ack after the successful retry, got %d", acked)
+	}
 	if len(writes) != 3 {
 		t.Fatalf("expected 3 write attempts, got %d", len(writes))
 	}
@@ -246,5 +253,33 @@ func TestFlushMessages_SkipOversized_MessageTooLargeRetryDropsOversized(t *testi
 	}
 	if handler.errors != 3 {
 		t.Fatalf("expected 1 oversized + 2 transient OnError calls, got %d", handler.errors)
+	}
+}
+
+func TestFlushMessages_CloseDuringOutage_StopsRetryWithoutAck(t *testing.T) {
+	handler := &recordingHandler{}
+	batch := newTestBatch(handler)
+	batch.Writer = &gokafka.Writer{}
+	batch.writeMessages = func(_ context.Context, _ ...gokafka.Message) error { return errors.New("broker down") }
+
+	acked := 0
+	ctx := &replication.ListenerContext{Ack: func() error { acked++; return nil }}
+	batch.AddEvents(ctx, []gokafka.Message{{Topic: "t", Value: []byte("a")}}, time.Now(), true)
+
+	done := make(chan struct{})
+	go func() { batch.FlushMessages(); close(done) }()
+	time.Sleep(300 * time.Millisecond)
+
+	closed := make(chan struct{})
+	go func() { batch.Close(); close(closed) }()
+
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close must return while the broker is down")
+	}
+	<-done
+	if acked != 0 {
+		t.Fatalf("unwritten messages must not be acked, got %d acks", acked)
 	}
 }

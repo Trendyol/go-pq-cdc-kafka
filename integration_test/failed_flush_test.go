@@ -92,7 +92,17 @@ func TestConnector_FailedFlush_RetriesUntilKafkaRecovers(t *testing.T) {
 	for i := 1; i <= duringOutage; i++ {
 		assert.Contains(t, names, fmt.Sprintf("during-outage-%d", i), "message produced during outage must not be lost")
 	}
-	assert.Equal(t, "after-outage", names[len(names)-1])
+	assert.Equal(t, 1, countOf(names, "before-outage"))
+}
+
+func countOf(names []string, name string) int {
+	n := 0
+	for _, v := range names {
+		if v == name {
+			n++
+		}
+	}
+	return n
 }
 
 // waitForKafkaLeader blocks until the restarted broker serves the partition

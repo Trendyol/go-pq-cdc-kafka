@@ -30,6 +30,8 @@ type Batch struct {
 	skipOversizedMessages bool
 	// writeMessages defaults to Writer.WriteMessages; tests inject failures.
 	writeMessages func(ctx context.Context, msgs ...gokafka.Message) error
+	closing       chan struct{}
+	closeOnce     sync.Once
 }
 
 func newBatch(
@@ -54,6 +56,7 @@ func newBatch(
 		maxMessageBytes:       maxMessageBytes,
 		skipOversizedMessages: skipOversizedMessages,
 		responseHandler:       responseHandler,
+		closing:               make(chan struct{}),
 	}
 	batch.writeMessages = writer.WriteMessages
 	return batch
@@ -70,6 +73,9 @@ func (b *Batch) StartBatchTicker() {
 
 func (b *Batch) Close() {
 	b.batchTicker.Stop()
+	// Stop an in-flight retry loop so Close does not hang during an outage.
+	// Unwritten messages are not acked and are replayed on the next start.
+	b.closeOnce.Do(func() { close(b.closing) })
 	b.FlushMessages()
 }
 
@@ -129,7 +135,6 @@ func (b *Batch) flushMessages() {
 		messagesToSend = b.removeOversizedMessages(b.messages)
 	}
 
-	startedTime := time.Now()
 	// Retry until the batch is written. Clearing the buffer on failure let a
 	// later successful flush ack an LSN past the failed batch and silently
 	// drop it. Retrying here (lock held) blocks AddEvents, so memory stays
@@ -138,9 +143,11 @@ func (b *Batch) flushMessages() {
 	// ponytail: fixed backoff cap; make it configurable if anyone needs it.
 	for attempt := 1; ; attempt++ {
 		var err error
+		startedTime := time.Now()
 		if len(messagesToSend) > 0 {
 			err = b.writeMessages(context.Background(), messagesToSend...)
 		}
+		b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
 
 		var ok bool
 		ok, messagesToSend = b.handleFlushResult(err, messagesToSend)
@@ -150,10 +157,13 @@ func (b *Batch) flushMessages() {
 
 		backoff := min(time.Duration(attempt)*100*time.Millisecond, 5*time.Second)
 		logger.Warn("flush failed, retrying", "attempt", attempt, "count", len(messagesToSend), "backoff", backoff)
-		time.Sleep(backoff)
+		select {
+		case <-b.closing:
+			logger.Warn("closing with unwritten messages, they will be replayed on restart", "count", len(messagesToSend))
+			return
+		case <-time.After(backoff):
+		}
 	}
-
-	b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
 
 	b.messages = b.messages[:0]
 	b.currentMessageBytes = 0
@@ -200,7 +210,7 @@ func (b *Batch) notifyOversizedSkipped(message *gokafka.Message) {
 // returns the messages that still have to be written on the next attempt.
 func (b *Batch) handleFlushResult(err error, sent []gokafka.Message) (bool, []gokafka.Message) {
 	if b.responseHandler == nil {
-		return err == nil && len(sent) > 0, sent
+		return err == nil && (len(sent) > 0 || b.skipOversizedMessages), sent
 	}
 
 	switch e := err.(type) { //nolint:errorLint
