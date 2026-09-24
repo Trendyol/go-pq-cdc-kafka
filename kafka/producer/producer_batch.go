@@ -28,6 +28,10 @@ type Batch struct {
 	flushLock             sync.Mutex
 	hasPendingMessages    bool
 	skipOversizedMessages bool
+	// writeMessages defaults to Writer.WriteMessages; tests inject failures.
+	writeMessages func(ctx context.Context, msgs ...gokafka.Message) error
+	closing       chan struct{}
+	closeOnce     sync.Once
 }
 
 func newBatch(
@@ -52,7 +56,9 @@ func newBatch(
 		maxMessageBytes:       maxMessageBytes,
 		skipOversizedMessages: skipOversizedMessages,
 		responseHandler:       responseHandler,
+		closing:               make(chan struct{}),
 	}
+	batch.writeMessages = writer.WriteMessages
 	return batch
 }
 
@@ -67,6 +73,9 @@ func (b *Batch) StartBatchTicker() {
 
 func (b *Batch) Close() {
 	b.batchTicker.Stop()
+	// Stop an in-flight retry loop so Close does not hang during an outage.
+	// Unwritten messages are not acked and are replayed on the next start.
+	b.closeOnce.Do(func() { close(b.closing) })
 	b.FlushMessages()
 }
 
@@ -126,29 +135,44 @@ func (b *Batch) flushMessages() {
 		messagesToSend = b.removeOversizedMessages(b.messages)
 	}
 
-	startedTime := time.Now()
-	var err error
-	if len(messagesToSend) > 0 {
-		err = b.Writer.WriteMessages(context.Background(), messagesToSend...)
+	// Retry until the batch is written. Clearing the buffer on failure let a
+	// later successful flush ack an LSN past the failed batch and silently
+	// drop it. Retrying here (lock held) blocks AddEvents, so memory stays
+	// bounded and ordering is kept; partially written batches may be
+	// re-sent, which at-least-once allows.
+	// ponytail: fixed backoff cap; make it configurable if anyone needs it.
+	for attempt := 1; ; attempt++ {
+		var err error
+		startedTime := time.Now()
+		if len(messagesToSend) > 0 {
+			err = b.writeMessages(context.Background(), messagesToSend...)
+		}
+		b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
+
+		var ok bool
+		ok, messagesToSend = b.handleFlushResult(err, messagesToSend)
+		if ok {
+			break
+		}
+
+		backoff := min(time.Duration(attempt)*100*time.Millisecond, 5*time.Second)
+		logger.Warn("flush failed, retrying", "attempt", attempt, "count", len(messagesToSend), "backoff", backoff)
+		select {
+		case <-b.closing:
+			logger.Warn("closing with unwritten messages, they will be replayed on restart", "count", len(messagesToSend))
+			return
+		case <-time.After(backoff):
+		}
 	}
-
-	b.metric.SetBulkRequestProcessLatency(time.Since(startedTime).Nanoseconds())
-
-	flushSuccess := b.handleFlushResult(err, messagesToSend)
 
 	b.messages = b.messages[:0]
 	b.currentMessageBytes = 0
-
-	if flushSuccess {
-		b.hasPendingMessages = false
-		if b.lastAckCtx != nil {
-			if ackErr := b.lastAckCtx.Ack(); ackErr != nil {
-				logger.Error("ack", "error", ackErr)
-			}
-			b.lastAckCtx = nil
+	b.hasPendingMessages = false
+	if b.lastAckCtx != nil {
+		if ackErr := b.lastAckCtx.Ack(); ackErr != nil {
+			logger.Error("ack", "error", ackErr)
 		}
-	} else {
-		logger.Warn("flush failed, skipping ACK to preserve message ordering")
+		b.lastAckCtx = nil
 	}
 
 	b.batchTicker.Reset(b.batchTickerDuration)
@@ -182,9 +206,11 @@ func (b *Batch) notifyOversizedSkipped(message *gokafka.Message) {
 	})
 }
 
-func (b *Batch) handleFlushResult(err error, sent []gokafka.Message) bool {
+// handleFlushResult reports whether the flush succeeded. On failure it also
+// returns the messages that still have to be written on the next attempt.
+func (b *Batch) handleFlushResult(err error, sent []gokafka.Message) (bool, []gokafka.Message) {
 	if b.responseHandler == nil {
-		return err == nil && len(sent) > 0
+		return err == nil && (len(sent) > 0 || b.skipOversizedMessages), sent
 	}
 
 	switch e := err.(type) { //nolint:errorLint
@@ -192,21 +218,23 @@ func (b *Batch) handleFlushResult(err error, sent []gokafka.Message) bool {
 		if len(sent) > 0 {
 			b.handleResponseSuccessFor(sent)
 		}
-		return len(sent) > 0 || b.skipOversizedMessages
+		return len(sent) > 0 || b.skipOversizedMessages, nil
 	case gokafka.WriteErrors:
 		return b.handleWriteError(e, sent)
 	case gokafka.MessageTooLargeError:
-		return b.handleMessageTooLargeError(e)
+		return b.handleMessageTooLargeError(e, sent)
 	default:
 		b.handleResponseErrorFor(sent, e)
 		logger.Error("batch producer flush", "error", err)
-		return false
+		return false, sent
 	}
 }
 
-func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors, sent []gokafka.Message) bool {
-	hasSuccess := false
+func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors, sent []gokafka.Message) (bool, []gokafka.Message) {
 	hasBlockingError := false
+	// Messages to re-send if the flush failed: the whole batch, minus
+	// oversized ones already reported and skipped, so ordering is kept.
+	retry := make([]gokafka.Message, 0, len(sent))
 
 	for i := range writeErrors {
 		if writeErrors[i] != nil {
@@ -215,23 +243,25 @@ func (b *Batch) handleWriteError(writeErrors gokafka.WriteErrors, sent []gokafka
 				Message: &sent[i],
 				Err:     writeErrors[i],
 			})
-			if !b.skipOversizedMessages || !kafka.IsMessageTooLarge(writeErrors[i]) {
-				hasBlockingError = true
+			if b.skipOversizedMessages && kafka.IsMessageTooLarge(writeErrors[i]) {
+				continue
 			}
+			hasBlockingError = true
+			retry = append(retry, sent[i])
 			continue
 		}
 
-		hasSuccess = true
+		retry = append(retry, sent[i])
 		b.responseHandler.OnSuccess(&kafka.ResponseHandlerContext{
 			Message: &sent[i],
 			Err:     nil,
 		})
 	}
 
-	if hasSuccess && !hasBlockingError {
-		return true
+	if hasBlockingError {
+		return false, retry
 	}
-	return false
+	return true, nil
 }
 
 func (b *Batch) handleResponseErrorFor(sent []gokafka.Message, err error) {
@@ -254,7 +284,7 @@ func (b *Batch) handleResponseSuccessFor(sent []gokafka.Message) {
 	}
 }
 
-func (b *Batch) handleMessageTooLargeError(mTooLargeError gokafka.MessageTooLargeError) bool {
+func (b *Batch) handleMessageTooLargeError(mTooLargeError gokafka.MessageTooLargeError, sent []gokafka.Message) (bool, []gokafka.Message) {
 	if b.skipOversizedMessages {
 		b.notifyOversizedSkipped(&mTooLargeError.Message)
 
@@ -263,10 +293,10 @@ func (b *Batch) handleMessageTooLargeError(mTooLargeError gokafka.MessageTooLarg
 			remaining = b.removeOversizedMessages(remaining)
 		}
 		if len(remaining) == 0 {
-			return true
+			return true, nil
 		}
 
-		err := b.Writer.WriteMessages(context.Background(), remaining...)
+		err := b.writeMessages(context.Background(), remaining...)
 		return b.handleFlushResult(err, remaining)
 	}
 
@@ -275,7 +305,7 @@ func (b *Batch) handleMessageTooLargeError(mTooLargeError gokafka.MessageTooLarg
 		Message: &mTooLargeError.Message,
 		Err:     mTooLargeError,
 	})
-	return false
+	return false, sent
 }
 
 func messageSize(m *gokafka.Message) int64 {
