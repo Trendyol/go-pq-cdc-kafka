@@ -15,9 +15,28 @@ type ResponseHandlerContext struct {
 	Err     error
 }
 
+// ResponseHandler receives per-message delivery results.
+//
+// All callbacks run synchronously on the producer flush path, while the flush
+// lock is held and before the replication position is acknowledged. They must
+// be fast and must not block: a slow callback stalls flushing, acking and
+// replication reading. Message pointers are only valid for the duration of the
+// call. A panic inside a callback prevents the ack.
 type ResponseHandler interface {
 	OnSuccess(ctx *ResponseHandlerContext)
 	OnError(ctx *ResponseHandlerContext)
+}
+
+// BatchResponseHandler is an optional extension of ResponseHandler. When the
+// handler passed to WithResponseHandler also implements it, OnBatchSuccess is
+// called once per flush with every message written to Kafka successfully, in
+// producer order, instead of one OnSuccess call per message. OnError is still
+// called per message. Use it to do a single round trip (e.g. one DELETE ...
+// WHERE id = ANY($1)) per batch instead of one per message. The same
+// non-blocking contract as ResponseHandler applies; the slice is only valid for
+// the duration of the call.
+type BatchResponseHandler interface {
+	OnBatchSuccess(messages []*kafka.Message)
 }
 
 type DefaultResponseHandler struct {
