@@ -29,12 +29,14 @@ type ResponseHandler interface {
 
 // BatchResponseHandler is an optional extension of ResponseHandler. When the
 // handler passed to WithResponseHandler also implements it, OnBatchSuccess is
-// called once per flush with every message written to Kafka successfully, in
-// producer order, instead of one OnSuccess call per message. OnError is still
-// called per message. Use it to do a single round trip (e.g. one DELETE ...
-// WHERE id = ANY($1)) per batch instead of one per message. The same
-// non-blocking contract as ResponseHandler applies; the slice is only valid for
-// the duration of the call.
+// called per successful write with the messages written to Kafka, in producer
+// order, instead of one OnSuccess call per message. OnError is still called
+// per message. A message is delivered to OnBatchSuccess at least once; it can
+// repeat if a batch is re-sent. Use it to do a single short round trip (e.g.
+// one DELETE ... WHERE id = ANY($1)) per batch instead of one per message.
+// The same contract as ResponseHandler applies: keep it fast, and the slice
+// and message pointers are only valid for the duration of the call. Copy keys
+// or ids before handing work to another goroutine.
 type BatchResponseHandler interface {
 	OnBatchSuccess(messages []*kafka.Message)
 }

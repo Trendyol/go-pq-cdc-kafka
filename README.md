@@ -273,9 +273,9 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 
 `cdc.WithResponseHandler(h)` lets you react to Kafka delivery results. `OnSuccess` and `OnError` are called per message.
 
-All callbacks run synchronously on the producer flush path, while the flush lock is held and before the replication position is acknowledged. **They must not block**: a slow callback stalls flushing, acking and replication reading. Message pointers are only valid for the duration of the call.
+All callbacks run synchronously on the producer flush path, while the flush lock is held and before the replication position is acknowledged. **Keep them fast**: whatever time a callback takes is added to flushing, acking and replication reading. Message pointers are only valid for the duration of the call; copy keys or ids before handing work to another goroutine.
 
-If your handler also implements `kafka.BatchResponseHandler`, `OnBatchSuccess([]*kafka.Message)` is called once per flush with every successfully written message (in producer order) instead of per-message `OnSuccess`. Use it for one round trip per batch, e.g. an outbox cleanup:
+If your handler also implements `kafka.BatchResponseHandler`, `OnBatchSuccess([]*kafka.Message)` is called per successful write with the written messages (in producer order) instead of per-message `OnSuccess`. Messages are delivered at least once and can repeat if a batch is re-sent. Use it for one short round trip per batch, e.g. an outbox cleanup:
 
 ```go
 func (h *outboxHandler) OnBatchSuccess(msgs []*kafka.Message) {
