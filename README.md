@@ -269,6 +269,30 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 | `kafka.clientID`                            |      string       |    no    |    -    | Unique identifier that the transport communicates to the brokers.                                               | For more detail, check [docs](https://pkg.go.dev/github.com/segmentio/kafka-go#Transport.ClientID).                                                                      |
 | `kafka.allowAutoTopicCreation`              |       bool        |    no    |  false  | Create topic if missing.                                                                                        | For more detail, check [docs](https://pkg.go.dev/github.com/segmentio/kafka-go#Writer.AllowAutoTopicCreation).                                                           |
 
+## Response Handler
+
+`cdc.WithResponseHandler(h)` lets you react to Kafka delivery results. `OnSuccess` and `OnError` are called per message.
+
+All callbacks run synchronously on the producer flush path, while the flush lock is held and before the replication position is acknowledged. **Keep them fast**: whatever time a callback takes is added to flushing, acking and replication reading. Message pointers are only valid for the duration of the call; copy keys or ids before handing work to another goroutine.
+
+If your handler also implements `kafka.BatchResponseHandler`, `OnBatchSuccess([]*kafka.Message)` is called per successful write with the written messages (in producer order) instead of per-message `OnSuccess`. Messages are delivered at least once and can repeat if a batch is re-sent. Use it for one short round trip per batch, e.g. an outbox cleanup:
+
+```go
+func (h *outboxHandler) OnBatchSuccess(msgs []*kafka.Message) {
+    ids := make([]string, 0, len(msgs))
+    for _, m := range msgs {
+        ids = append(ids, string(m.Key))
+    }
+    ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+    defer cancel()
+    if _, err := h.db.Exec(ctx, "DELETE FROM outbox WHERE id = ANY($1)", ids); err != nil {
+        // log and move on; the ack still happens. Keep a periodic sweeper for leftovers.
+    }
+}
+```
+
+`OnError` is still called per message, including for oversized messages skipped via `skipOversizedMessages`.
+
 ## API
 
 | Endpoint             | Description                                                                               |
