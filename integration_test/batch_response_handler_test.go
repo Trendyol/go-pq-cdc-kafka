@@ -16,10 +16,10 @@ import (
 
 // batchHandler mimics an outbox publisher that deletes rows per Kafka batch.
 type batchHandler struct {
-	mu        sync.Mutex
 	batches   [][]string
 	successes int
 	errors    int
+	mu        sync.Mutex
 }
 
 func (h *batchHandler) OnSuccess(_ *cdckafka.ResponseHandlerContext) {
@@ -84,7 +84,7 @@ func TestConnector_BatchResponseHandler_ReceivesEveryWrittenMessageOncePerFlush(
 		insertOversizedEvent(t, db, tableName, fmt.Sprintf("event-%d", i), smallPayload(i))
 	}
 
-	messages := readTopicMessages(t, topic, total, 15*time.Second)
+	messages := readTopicMessages(t, topic, total)
 	require.Len(t, messages, total)
 
 	// Callbacks fire before ack; give the trailing ticker flush time to run.

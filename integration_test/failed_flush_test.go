@@ -59,7 +59,7 @@ func TestConnector_FailedFlush_RetriesUntilKafkaRecovers(t *testing.T) {
 
 	// Warm up: prove the pipeline works and the topic exists.
 	insertOversizedEvent(t, db, tableName, "before-outage", smallPayload(0))
-	require.Len(t, readTopicMessages(t, topic, 1, 15*time.Second), 1)
+	require.Len(t, readTopicMessages(t, topic, 1), 1)
 
 	stopTimeout := 10 * time.Second
 	require.NoError(t, Infra.KafkaContainer.Stop(ctx, &stopTimeout))

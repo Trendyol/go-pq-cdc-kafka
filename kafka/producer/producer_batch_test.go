@@ -111,8 +111,8 @@ func TestHandleWriteError_SkipDisabled_PanicsOnPartialError(t *testing.T) {
 var _ Metric = noopMetric{}
 
 type batchRecordingHandler struct {
+	batches [][]*gokafka.Message
 	recordingHandler
-	batches   [][]*gokafka.Message
 	successes int
 }
 

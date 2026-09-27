@@ -19,19 +19,18 @@ type Batch struct {
 	batchTicker           *time.Ticker
 	Writer                *gokafka.Writer
 	lastAckCtx            *replication.ListenerContext
+	closing               chan struct{}
+	writeMessages         func(ctx context.Context, msgs ...gokafka.Message) error
 	messages              []gokafka.Message
-	batchTickerDuration   time.Duration
-	batchLimit            int
 	batchBytes            int64
 	maxMessageBytes       int64
 	currentMessageBytes   int64
+	batchLimit            int
+	batchTickerDuration   time.Duration
+	closeOnce             sync.Once
 	flushLock             sync.Mutex
 	hasPendingMessages    bool
 	skipOversizedMessages bool
-	// writeMessages defaults to Writer.WriteMessages; tests inject failures.
-	writeMessages func(ctx context.Context, msgs ...gokafka.Message) error
-	closing       chan struct{}
-	closeOnce     sync.Once
 }
 
 func newBatch(

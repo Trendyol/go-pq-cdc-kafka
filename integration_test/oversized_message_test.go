@@ -63,7 +63,7 @@ func TestConnector_SkipOversizedMessages_MixedBatchDeliversValidMessages(t *test
 		insertOversizedEvent(t, db, tableName, fmt.Sprintf("valid-%d", i), smallPayload(i))
 	}
 
-	messages := readTopicMessages(t, topic, 14, 15*time.Second)
+	messages := readTopicMessages(t, topic, 14)
 	names := messageNames(messages)
 
 	assert.Len(t, names, 14, "oversized event must not block valid messages in the batch")
@@ -109,7 +109,7 @@ func TestConnector_SkipOversizedMessages_SamePartitionKeyDeliversValidMessages(t
 		insertOversizedEvent(t, db, tableName, fmt.Sprintf("same-partition-valid-%d", i), smallPayload(i))
 	}
 
-	messages := readTopicMessages(t, topic, 12, 15*time.Second)
+	messages := readTopicMessages(t, topic, 12)
 	names := messageNames(messages)
 
 	assert.Len(t, names, 12, "valid messages on the same partition must survive an oversized neighbour")
@@ -157,7 +157,7 @@ func TestConnector_SkipOversizedMessages_AllOversizedBatchDoesNotStallSlot(t *te
 		insertOversizedEvent(t, db, tableName, fmt.Sprintf("after-skip-valid-%d", i), smallPayload(i))
 	}
 
-	messages := readTopicMessages(t, topic, 3, 15*time.Second)
+	messages := readTopicMessages(t, topic, 3)
 	names := messageNames(messages)
 
 	assert.Len(t, names, 3, "connector must continue after a batch containing only oversized messages")
@@ -285,8 +285,9 @@ func waitForConnectorReady(ctx context.Context, t *testing.T, connector cdc.Conn
 	require.NoError(t, err)
 }
 
-func readTopicMessages(t *testing.T, topic string, expectedCount int, timeout time.Duration) []map[string]interface{} {
+func readTopicMessages(t *testing.T, topic string, expectedCount int) []map[string]interface{} {
 	t.Helper()
+	const timeout = 15 * time.Second
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   []string{fmt.Sprintf("%s:%s", Infra.KafkaHost, Infra.KafkaPort)},
