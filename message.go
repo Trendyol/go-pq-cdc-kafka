@@ -5,6 +5,7 @@ import (
 
 	"github.com/Trendyol/go-pq-cdc/pq"
 	"github.com/Trendyol/go-pq-cdc/pq/message/format"
+	"github.com/Trendyol/go-pq-cdc/pq/replication"
 )
 
 type Message struct {
@@ -20,6 +21,29 @@ type Message struct {
 	// LSN is the WAL position of the change and increases for a given row.
 	// Snapshot events carry the LSN the snapshot was taken at, shared by every snapshot row.
 	LSN pq.LSN
+
+	// TransactionID is the top-level PostgreSQL transaction that produced the change,
+	// zero for snapshot events. It is 32-bit and wraps around: it groups changes, LSN orders them.
+	TransactionID uint32
+}
+
+func newMessage(ctx *replication.ListenerContext) *Message {
+	var msg *Message
+	switch m := ctx.Message.(type) {
+	case *format.Insert:
+		msg = NewInsertMessage(m)
+	case *format.Update:
+		msg = NewUpdateMessage(m)
+	case *format.Delete:
+		msg = NewDeleteMessage(m)
+	case *format.Snapshot:
+		msg = NewSnapshotMessage(m)
+	default:
+		return nil
+	}
+
+	msg.TransactionID = ctx.Xid
+	return msg
 }
 
 func NewInsertMessage(m *format.Insert) *Message {

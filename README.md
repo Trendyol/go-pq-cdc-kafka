@@ -273,9 +273,12 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 
 `cdc.Message.LSN` is the WAL position of the change. It increases with every change to a given row, so a sink that stores it per row can skip a change older than the one it already has, including a duplicate from a re-sent batch. Snapshot events carry the LSN the snapshot was taken at, shared by every snapshot row.
 
-Pass it on with the record, for example as a header. Compare it as a number: `LSN.String()` returns PostgreSQL's `X/X` form, which does not sort as text.
+`cdc.Message.TransactionID` is the top-level transaction that produced the change, and `0` for snapshot events. Map related tables to one topic and key their records by it to keep each transaction on one partition, so a consumer reads it in order and can apply it at once. Changes to the same row from different transactions can then land on different partitions; compare `LSN` to apply them in order. `TransactionID` is 32-bit and wraps around, so use it to group changes, not to order them.
+
+Pass them on with the record. Compare `LSN` as a number: `LSN.String()` returns PostgreSQL's `X/X` form, which does not sort as text.
 
 ```go
+Key: []byte(strconv.FormatUint(uint64(msg.TransactionID), 10)),
 Headers: []gokafka.Header{
     {Key: "lsn", Value: []byte(strconv.FormatUint(uint64(msg.LSN), 10))},
 },
