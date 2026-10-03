@@ -269,6 +269,18 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 | `kafka.clientID`                            |      string       |    no    |    -    | Unique identifier that the transport communicates to the brokers.                                               | For more detail, check [docs](https://pkg.go.dev/github.com/segmentio/kafka-go#Transport.ClientID).                                                                      |
 | `kafka.allowAutoTopicCreation`              |       bool        |    no    |  false  | Create topic if missing.                                                                                        | For more detail, check [docs](https://pkg.go.dev/github.com/segmentio/kafka-go#Writer.AllowAutoTopicCreation).                                                           |
 
+## Change Metadata
+
+`cdc.Message.LSN` is the WAL position of the change. It increases with every change to a given row, so a sink that stores it per row can skip a change older than the one it already has, including a duplicate from a re-sent batch. Snapshot events carry the LSN the snapshot was taken at, shared by every snapshot row.
+
+Pass it on with the record, for example as a header. Compare it as a number: `LSN.String()` returns PostgreSQL's `X/X` form, which does not sort as text.
+
+```go
+Headers: []gokafka.Header{
+    {Key: "lsn", Value: []byte(strconv.FormatUint(uint64(msg.LSN), 10))},
+},
+```
+
 ## Response Handler
 
 `cdc.WithResponseHandler(h)` lets you react to Kafka delivery results. `OnSuccess` and `OnError` are called per message.
