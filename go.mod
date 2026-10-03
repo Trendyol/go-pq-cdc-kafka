@@ -82,3 +82,5 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/Trendyol/go-pq-cdc => github.com/KellPro/go-pq-cdc v0.0.0-20260928171354-109bb94dd9ed
