@@ -3,6 +3,7 @@ package cdc
 import (
 	"time"
 
+	"github.com/Trendyol/go-pq-cdc/pq"
 	"github.com/Trendyol/go-pq-cdc/pq/message/format"
 )
 
@@ -15,6 +16,10 @@ type Message struct {
 	NewData map[string]any
 
 	Type MessageType
+
+	// LSN is the WAL position of the change and increases for a given row.
+	// Snapshot events carry the LSN the snapshot was taken at, shared by every snapshot row.
+	LSN pq.LSN
 }
 
 func NewInsertMessage(m *format.Insert) *Message {
@@ -25,6 +30,7 @@ func NewInsertMessage(m *format.Insert) *Message {
 		OldData:        nil,
 		NewData:        m.Decoded,
 		Type:           InsertMessage,
+		LSN:            m.LSN,
 	}
 }
 
@@ -36,6 +42,7 @@ func NewUpdateMessage(m *format.Update) *Message {
 		OldData:        m.OldDecoded,
 		NewData:        m.NewDecoded,
 		Type:           UpdateMessage,
+		LSN:            m.LSN,
 	}
 }
 
@@ -47,6 +54,7 @@ func NewDeleteMessage(m *format.Delete) *Message {
 		OldData:        m.OldDecoded,
 		NewData:        nil,
 		Type:           DeleteMessage,
+		LSN:            m.LSN,
 	}
 }
 
@@ -58,6 +66,7 @@ func NewSnapshotMessage(m *format.Snapshot) *Message {
 		OldData:        nil,
 		NewData:        m.Data,
 		Type:           SnapshotMessage,
+		LSN:            m.LSN,
 	}
 }
 
