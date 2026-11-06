@@ -27,6 +27,23 @@ func Apply(steps ...change.Step) Step {
 	}
 }
 
+// When runs steps only on changes that match p; other changes pass through untouched.
+// A step that drops a matching change still drops it. Predicates come from
+// github.com/Trendyol/go-pq-cdc/change: IsOp, IsTable, Not, or any func(*change.Change) bool.
+func When(p change.Predicate, steps ...Step) Step {
+	return func(r *Record) bool {
+		if !p(r.Change) {
+			return true
+		}
+		for _, step := range steps {
+			if !step(r) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
 // KeyFromColumns sets the key from the row's columns, joined with ":" when there are several.
 // The key stays empty when a column is missing.
 func KeyFromColumns(cols ...string) Step {
@@ -82,6 +99,16 @@ func XIDHeader() Step {
 func Topic(topic string) Step {
 	return func(r *Record) bool {
 		r.Topic = topic
+		return true
+	}
+}
+
+// TopicFrom computes the topic for each record. An empty result keeps the table's topic.
+func TopicFrom(topic func(r *Record) string) Step {
+	return func(r *Record) bool {
+		if t := topic(r); t != "" {
+			r.Topic = t
+		}
 		return true
 	}
 }
