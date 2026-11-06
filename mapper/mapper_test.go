@@ -1,19 +1,20 @@
-package cdc
+package mapper
 
 import (
 	"encoding/json"
 	"errors"
 	"testing"
 
+	cdc "github.com/Trendyol/go-pq-cdc-kafka"
 	"github.com/Trendyol/go-pq-cdc/change"
 	gokafka "github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func insertMessage() *Message {
-	return &Message{
-		Type:           InsertMessage,
+func insertMessage() *cdc.Message {
+	return &cdc.Message{
+		Type:           cdc.InsertMessage,
 		TableNamespace: "public",
 		TableName:      "users",
 		NewData:        map[string]any{"id": int32(7), "name": "ada", "password": "secret"},
@@ -22,9 +23,9 @@ func insertMessage() *Message {
 	}
 }
 
-func deleteMessage() *Message {
-	return &Message{
-		Type:           DeleteMessage,
+func deleteMessage() *cdc.Message {
+	return &cdc.Message{
+		Type:           cdc.DeleteMessage,
 		TableNamespace: "public",
 		TableName:      "users",
 		OldData:        map[string]any{"id": int32(7), "name": "ada"},
@@ -40,8 +41,8 @@ func decodeValue(t *testing.T, value []byte) map[string]any {
 	return got
 }
 
-func TestDynamicMapper_NoStepsWritesRowJSON(t *testing.T) {
-	got := NewDynamicMapper()(insertMessage())
+func TestNew_NoStepsWritesRowJSON(t *testing.T) {
+	got := New()(insertMessage())
 
 	require.Len(t, got, 1)
 	assert.Nil(t, got[0].Key)
@@ -50,15 +51,15 @@ func TestDynamicMapper_NoStepsWritesRowJSON(t *testing.T) {
 	assert.Equal(t, map[string]any{"id": float64(7), "name": "ada", "password": "secret"}, decodeValue(t, got[0].Value))
 }
 
-func TestDynamicMapper_DeleteWritesOldRow(t *testing.T) {
-	got := NewDynamicMapper()(deleteMessage())
+func TestNew_DeleteWritesOldRow(t *testing.T) {
+	got := New()(deleteMessage())
 
 	require.Len(t, got, 1)
 	assert.Equal(t, map[string]any{"id": float64(7), "name": "ada"}, decodeValue(t, got[0].Value))
 }
 
-func TestDynamicMapper_FullPipeline(t *testing.T) {
-	mapper := NewDynamicMapper(
+func TestNew_FullPipeline(t *testing.T) {
+	mapper := New(
 		Apply(
 			change.OnlyOps(change.Insert, change.Update, change.Delete),
 			change.Exclude("password"),
@@ -85,9 +86,9 @@ func TestDynamicMapper_FullPipeline(t *testing.T) {
 	assert.Equal(t, map[string]any{"id": float64(7), "name": "ada"}, decodeValue(t, got[0].Value))
 }
 
-func TestDynamicMapper_DroppedChangeSendsNothing(t *testing.T) {
+func TestNew_DroppedChangeSendsNothing(t *testing.T) {
 	called := false
-	mapper := NewDynamicMapper(
+	mapper := New(
 		Apply(change.OnlyOps(change.Delete)),
 		func(*Record) bool {
 			called = true
@@ -99,48 +100,48 @@ func TestDynamicMapper_DroppedChangeSendsNothing(t *testing.T) {
 	assert.False(t, called)
 }
 
-func TestDynamicMapper_LeavesMessageUntouched(t *testing.T) {
+func TestNew_LeavesMessageUntouched(t *testing.T) {
 	msg := insertMessage()
 
-	NewDynamicMapper(Apply(change.Exclude("password"), change.Rename(map[string]string{"name": "full_name"})))(msg)
+	New(Apply(change.Exclude("password"), change.Rename(map[string]string{"name": "full_name"})))(msg)
 
 	assert.Equal(t, map[string]any{"id": int32(7), "name": "ada", "password": "secret"}, msg.NewData)
 }
 
-func TestDynamicMapper_StepsRunInOrder(t *testing.T) {
-	keyThenRename := NewDynamicMapper(KeyFromColumns("name"), Apply(change.Rename(map[string]string{"name": "full_name"})))
-	renameThenKey := NewDynamicMapper(Apply(change.Rename(map[string]string{"name": "full_name"})), KeyFromColumns("name"))
+func TestNew_StepsRunInOrder(t *testing.T) {
+	keyThenRename := New(KeyFromColumns("name"), Apply(change.Rename(map[string]string{"name": "full_name"})))
+	renameThenKey := New(Apply(change.Rename(map[string]string{"name": "full_name"})), KeyFromColumns("name"))
 
 	assert.Equal(t, []byte("ada"), keyThenRename(insertMessage())[0].Key)
 	assert.Nil(t, renameThenKey(insertMessage())[0].Key)
 }
 
-func TestDynamicMapper_CustomStep(t *testing.T) {
+func TestNew_CustomStep(t *testing.T) {
 	upperName := func(r *Record) bool {
 		r.Change.New["name"] = "ADA"
 		return true
 	}
 
-	got := NewDynamicMapper(upperName)(insertMessage())
+	got := New(upperName)(insertMessage())
 
 	assert.Equal(t, "ADA", decodeValue(t, got[0].Value)["name"])
 }
 
-func TestDynamicMapper_EncodeErrorSendsNothing(t *testing.T) {
+func TestNew_EncodeErrorSendsNothing(t *testing.T) {
 	failing := func(r *Record) bool {
 		r.Encode = func(*change.Change) ([]byte, error) { return nil, errors.New("boom") }
 		return true
 	}
 
-	assert.Nil(t, NewDynamicMapper(failing)(insertMessage()))
+	assert.Nil(t, New(failing)(insertMessage()))
 }
 
-func TestDynamicMapper_SkipsSnapshotBoundaries(t *testing.T) {
-	assert.Nil(t, NewDynamicMapper()(&Message{Type: SnapshotMessage}))
+func TestNew_SkipsSnapshotBoundaries(t *testing.T) {
+	assert.Nil(t, New()(&cdc.Message{Type: cdc.SnapshotMessage}))
 }
 
-func TestDynamicMapper_SnapshotRow(t *testing.T) {
-	got := NewDynamicMapper(OperationHeader())(&Message{Type: SnapshotMessage, NewData: map[string]any{"id": 1}})
+func TestNew_SnapshotRow(t *testing.T) {
+	got := New(OperationHeader())(&cdc.Message{Type: cdc.SnapshotMessage, NewData: map[string]any{"id": 1}})
 
 	require.Len(t, got, 1)
 	assert.Equal(t, []byte("SNAPSHOT"), got[0].Headers[0].Value)
