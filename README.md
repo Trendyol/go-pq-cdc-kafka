@@ -238,13 +238,24 @@ connector, err := cdc.NewConnector(ctx, cfg, m)
 
 | Step | What it does |
 | --- | --- |
-| `Apply(steps...)` | Runs target-independent steps from [`go-pq-cdc/change`](https://github.com/Trendyol/go-pq-cdc#change-and-transform-steps): `OnlyOps`, `OnlyTables`, `Where`, `Include`, `Exclude`, `Rename` |
+| `Apply(steps...)` | Runs target-independent steps from [`go-pq-cdc/change`](https://github.com/Trendyol/go-pq-cdc#change-and-transform-steps): `OnlyOps`, `OnlyTables`, `Where`, `Include`, `Exclude`, `Rename`, `Mask`, `InsertField`, `When` |
+| `When(predicate, steps...)` | Runs the steps only on changes that match a `change` predicate (`IsOp`, `IsTable`, `Not`, or your own); other changes pass through |
 | `KeyFromColumns(cols...)` | Sets the key from the row's columns, joined with `:` when there are several; stays empty if a column is missing |
 | `OperationHeader()`, `TableHeader()`, `LSNHeader()`, `XIDHeader()` | Add the `operation`, `table`, `lsn` and `xid` headers |
 | `Header(key, func)` | Adds a header computed from the record |
 | `Topic(name)` | Sends to `name` instead of the table's topic |
+| `TopicFrom(func)` | Computes the topic per record; an empty result keeps the table's topic |
 | `TombstoneOnDelete()` | Sends deletes with a nil value |
 | `EnvelopeValue()` | Writes the value as `{"op", "before", "after", "source"}` |
+| `DebeziumValue()` | Writes the value like a Debezium PostgreSQL event payload: `op` is `c`/`u`/`d`/`r`, with `ts_ms` and `source` (`connector`, `schema`, `table`, `txId`, `lsn`, `snapshot`, `ts_ms`) |
+
+```go
+// deletes go to their own topic without the email; everything else is untouched
+mapper.When(change.IsOp(change.Delete),
+	mapper.Apply(change.Exclude("email")),
+	mapper.Topic("users.deleted"),
+)
+```
 
 `mapper.DefaultMapper` is `mapper.New(mapper.OperationHeader())`: the row as JSON, the operation header and no key. The primary key is not part of the message, so pick the key with `KeyFromColumns`.
 

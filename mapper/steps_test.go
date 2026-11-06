@@ -1,6 +1,7 @@
 package mapper
 
 import (
+	"strings"
 	"testing"
 
 	cdc "github.com/Trendyol/go-pq-cdc-kafka"
@@ -138,4 +139,62 @@ func TestEnvelopeValue_Insert(t *testing.T) {
 	got := New(EnvelopeValue())(&cdc.Message{Type: cdc.InsertMessage, NewData: map[string]any{"id": 1}})
 
 	assert.JSONEq(t, `{"op": "INSERT", "before": null, "after": {"id": 1}, "source": {"schema": "", "table": "", "lsn": 0, "xid": 0}}`, string(got[0].Value))
+}
+
+func TestWhen(t *testing.T) {
+	m := New(
+		When(change.IsOp(change.Delete), Apply(change.Exclude("name")), Topic("users.deleted")),
+		OperationHeader(),
+	)
+
+	deleted := m(deleteMessage())
+	inserted := m(insertMessage())
+
+	require.Len(t, deleted, 1)
+	assert.Equal(t, "users.deleted", deleted[0].Topic)
+	assert.Equal(t, map[string]any{"id": float64(7)}, decodeValue(t, deleted[0].Value))
+	require.Len(t, inserted, 1)
+	assert.Empty(t, inserted[0].Topic)
+	assert.Equal(t, "ada", decodeValue(t, inserted[0].Value)["name"])
+}
+
+func TestWhen_InnerDropStillDrops(t *testing.T) {
+	m := New(When(change.IsTable("users"), Apply(change.OnlyOps(change.Insert))))
+
+	assert.Nil(t, m(deleteMessage()))
+	assert.Len(t, m(insertMessage()), 1)
+}
+
+func TestWhen_Not(t *testing.T) {
+	m := New(When(change.Not(change.IsOp(change.Delete)), TombstoneOnDelete(), KeyFromColumns("id")))
+
+	assert.Nil(t, m(deleteMessage())[0].Key)
+	assert.Equal(t, []byte("7"), m(insertMessage())[0].Key)
+}
+
+func TestTopicFrom(t *testing.T) {
+	byOp := TopicFrom(func(r *Record) string {
+		if r.Change.Op == change.Insert {
+			return ""
+		}
+		return "users." + strings.ToLower(string(r.Change.Op))
+	})
+
+	update := record(&change.Change{Op: change.Update})
+	insert := record(&change.Change{Op: change.Insert})
+	insert.Topic = "kept"
+
+	assert.True(t, byOp(update))
+	assert.True(t, byOp(insert))
+	assert.Equal(t, "users.update", update.Topic)
+	assert.Equal(t, "kept", insert.Topic)
+}
+
+func TestMaskAndInsertField(t *testing.T) {
+	got := New(Apply(change.Mask("password"), change.InsertField("source_db", "users-db")))(insertMessage())
+
+	require.Len(t, got, 1)
+	assert.Equal(t, map[string]any{
+		"id": float64(7), "name": "ada", "password": change.MaskValue, "source_db": "users-db",
+	}, decodeValue(t, got[0].Value))
 }
