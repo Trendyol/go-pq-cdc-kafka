@@ -1,8 +1,9 @@
-package cdc
+package mapper
 
 import (
 	"testing"
 
+	cdc "github.com/Trendyol/go-pq-cdc-kafka"
 	"github.com/Trendyol/go-pq-cdc/change"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -99,7 +100,7 @@ func TestTopic(t *testing.T) {
 }
 
 func TestTombstoneOnDelete(t *testing.T) {
-	mapper := NewDynamicMapper(KeyFromColumns("id"), TombstoneOnDelete())
+	mapper := New(KeyFromColumns("id"), TombstoneOnDelete())
 
 	deleted := mapper(deleteMessage())
 	inserted := mapper(insertMessage())
@@ -112,8 +113,8 @@ func TestTombstoneOnDelete(t *testing.T) {
 }
 
 func TestEnvelopeValue(t *testing.T) {
-	msg := &Message{
-		Type:           UpdateMessage,
+	msg := &cdc.Message{
+		Type:           cdc.UpdateMessage,
 		TableNamespace: "public",
 		TableName:      "users",
 		OldData:        map[string]any{"id": 1, "name": "old"},
@@ -122,7 +123,7 @@ func TestEnvelopeValue(t *testing.T) {
 		TransactionID:  9,
 	}
 
-	got := NewDynamicMapper(EnvelopeValue(), Apply(change.Exclude("id")))(msg)
+	got := New(EnvelopeValue(), Apply(change.Exclude("id")))(msg)
 
 	require.Len(t, got, 1)
 	assert.JSONEq(t, `{
@@ -134,7 +135,7 @@ func TestEnvelopeValue(t *testing.T) {
 }
 
 func TestEnvelopeValue_Insert(t *testing.T) {
-	got := NewDynamicMapper(EnvelopeValue())(&Message{Type: InsertMessage, NewData: map[string]any{"id": 1}})
+	got := New(EnvelopeValue())(&cdc.Message{Type: cdc.InsertMessage, NewData: map[string]any{"id": 1}})
 
 	assert.JSONEq(t, `{"op": "INSERT", "before": null, "after": {"id": 1}, "source": {"schema": "", "table": "", "lsn": 0, "xid": 0}}`, string(got[0].Value))
 }

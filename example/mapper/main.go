@@ -8,6 +8,7 @@ import (
 
 	cdc "github.com/Trendyol/go-pq-cdc-kafka"
 	"github.com/Trendyol/go-pq-cdc-kafka/config"
+	"github.com/Trendyol/go-pq-cdc-kafka/mapper"
 	"github.com/Trendyol/go-pq-cdc/change"
 	cdcconfig "github.com/Trendyol/go-pq-cdc/config"
 	"github.com/Trendyol/go-pq-cdc/pq/publication"
@@ -81,17 +82,17 @@ func main() {
 		},
 	}
 
-	mapper := cdc.NewDynamicMapper(
-		cdc.Apply(
+	m := mapper.New(
+		mapper.Apply(
 			change.OnlyOps(change.Insert, change.Update, change.Delete),
 			change.Exclude("password"),
 		),
-		cdc.KeyFromColumns("id"),
-		cdc.OperationHeader(),
-		cdc.TombstoneOnDelete(),
+		mapper.KeyFromColumns("id"),
+		mapper.OperationHeader(),
+		mapper.TombstoneOnDelete(),
 	)
 
-	connector, err := cdc.NewConnector(ctx, cfg, mapper)
+	connector, err := cdc.NewConnector(ctx, cfg, m)
 	if err != nil {
 		slog.Error("new connector", "error", err)
 		os.Exit(1)
