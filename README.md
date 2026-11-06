@@ -212,10 +212,52 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 }
 ```
 
+## Dynamic Mapper
+
+Instead of writing the whole handler, build it from steps. `NewDynamicMapper` runs the steps in order on every change and sends one message per change that no step drops. With no step that sets the value, the value is the row as JSON: the new row, or the old row for deletes.
+
+```go
+mapper := cdc.NewDynamicMapper(
+	cdc.Apply(
+		change.OnlyOps(change.Insert, change.Update, change.Delete),
+		change.Exclude("password"),
+	),
+	cdc.KeyFromColumns("id"),
+	cdc.OperationHeader(),
+	cdc.TombstoneOnDelete(),
+)
+
+connector, err := cdc.NewConnector(ctx, cfg, mapper)
+```
+
+| Step | What it does |
+| --- | --- |
+| `Apply(steps...)` | Runs target-independent steps from [`go-pq-cdc/change`](https://github.com/Trendyol/go-pq-cdc#change-and-transform-steps): `OnlyOps`, `OnlyTables`, `Where`, `Include`, `Exclude`, `Rename` |
+| `KeyFromColumns(cols...)` | Sets the key from the row's columns, joined with `:` when there are several; stays empty if a column is missing |
+| `OperationHeader()`, `TableHeader()`, `LSNHeader()`, `XIDHeader()` | Add the `operation`, `table`, `lsn` and `xid` headers |
+| `Header(key, func)` | Adds a header computed from the record |
+| `Topic(name)` | Sends to `name` instead of the table's topic |
+| `TombstoneOnDelete()` | Sends deletes with a nil value |
+| `EnvelopeValue()` | Writes the value as `{"op", "before", "after", "source"}` |
+
+`DefaultMapper` is `NewDynamicMapper(OperationHeader())`: the row as JSON, the operation header and no key. The primary key is not part of the message, so pick the key with `KeyFromColumns`.
+
+A step is a `func(*cdc.Record) bool` that fills in the record and returns `false` to drop the change. Any function with that signature can be passed to `NewDynamicMapper`:
+
+```go
+source := func(r *cdc.Record) bool {
+	r.Headers = append(r.Headers, gokafka.Header{Key: "source", Value: []byte("users-db")})
+	return true
+}
+```
+
+Steps work on a copy of the change, so the original message is never modified. See the [dynamic mapper example](./example/dynamic-mapper).
+
 ## Examples
 
 * [Simple](./example/simple)
 * [Snapshot](./example/snapshot)
+* [Dynamic Mapper](./example/dynamic-mapper)
 
 ## Configuration
 
