@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	cdc "github.com/Trendyol/go-pq-cdc-kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/mapper"
 	"github.com/Trendyol/go-pq-cdc/change"
 	"github.com/Trendyol/go-pq-cdc/pq/publication"
 	"github.com/segmentio/kafka-go"
@@ -15,32 +16,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConnector_DynamicMapper(t *testing.T) {
+func TestConnector_Mapper(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
 	defer db.Close()
 
-	const tableName = "dynamic_mapper_users"
+	const tableName = "mapper_users"
 	dropTable(t, db, tableName)
 	_, err := db.Exec(fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, name TEXT NOT NULL, password TEXT)`, tableName))
 	require.NoError(t, err)
 
-	topic := "dynamic.mapper.test"
-	cfg := oversizedConnectorConfig("cdc_slot_dynamic", "cdc_publication_dynamic", tableName, topic, false, "", 10)
+	topic := "mapper.test"
+	cfg := oversizedConnectorConfig("cdc_slot_mapper", "cdc_publication_mapper", tableName, topic, false, "", 10)
 	cfg.CDC.Publication.Operations = publication.Operations{
 		publication.OperationInsert,
 		publication.OperationUpdate,
 		publication.OperationDelete,
 	}
 
-	mapper := cdc.NewDynamicMapper(
-		cdc.Apply(change.Exclude("password")),
-		cdc.KeyFromColumns("id"),
-		cdc.OperationHeader(),
-		cdc.TombstoneOnDelete(),
+	m := mapper.New(
+		mapper.Apply(change.Exclude("password")),
+		mapper.KeyFromColumns("id"),
+		mapper.OperationHeader(),
+		mapper.TombstoneOnDelete(),
 	)
 
-	connector, err := cdc.NewConnector(ctx, cfg, mapper)
+	connector, err := cdc.NewConnector(ctx, cfg, m)
 	require.NoError(t, err)
 	defer connector.Close()
 
@@ -61,7 +62,7 @@ func TestConnector_DynamicMapper(t *testing.T) {
 	ops := make([]string, 0, len(records))
 	for _, record := range records {
 		assert.Equal(t, strconv.Itoa(id), string(record.Key), "every change of the row must share its key")
-		ops = append(ops, header(t, record, cdc.OperationHeaderKey))
+		ops = append(ops, header(t, record, mapper.OperationHeaderKey))
 	}
 	assert.Equal(t, []string{"INSERT", "UPDATE", "DELETE"}, ops)
 

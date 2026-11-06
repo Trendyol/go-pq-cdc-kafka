@@ -1,14 +1,15 @@
-package cdc
+package mapper
 
 import (
 	"encoding/json"
 
+	cdc "github.com/Trendyol/go-pq-cdc-kafka"
 	"github.com/Trendyol/go-pq-cdc/change"
 	"github.com/Trendyol/go-pq-cdc/logger"
 	gokafka "github.com/segmentio/kafka-go"
 )
 
-// Record is the Kafka message a DynamicMapper builds for one change.
+// Record is the Kafka message a mapper builds for one change.
 // Steps fill it in; the value is encoded after the last step.
 type Record struct {
 	// Change is a copy of the captured change, so steps can edit its rows freely.
@@ -25,15 +26,15 @@ type Record struct {
 
 // Step builds part of a Record. Returning false drops the change.
 //
-// Any function with this signature can be passed to NewDynamicMapper, so a new
+// Any function with this signature can be passed to New, so a new
 // step is usable as soon as it is written. Steps from github.com/Trendyol/go-pq-cdc/change
 // run through Apply.
 type Step func(r *Record) bool
 
-// NewDynamicMapper returns a Handler that runs steps in order on every change and
+// New returns a cdc.Handler that runs steps in order on every change and
 // sends one Kafka message per change that no step drops.
-func NewDynamicMapper(steps ...Step) Handler {
-	return func(msg *Message) []gokafka.Message {
+func New(steps ...Step) cdc.Handler {
+	return func(msg *cdc.Message) []gokafka.Message {
 		// Snapshot BEGIN and END events carry no row.
 		if msg.Type.IsSnapshot() && msg.NewData == nil {
 			return nil
@@ -51,7 +52,7 @@ func NewDynamicMapper(steps ...Step) Handler {
 			var err error
 			value, err = r.Encode(r.Change)
 			if err != nil {
-				logger.Error("dynamic mapper: encode value", "table", r.Change.FullName(), "error", err)
+				logger.Error("mapper: encode value", "table", r.Change.FullName(), "error", err)
 				return nil
 			}
 		}
@@ -67,11 +68,11 @@ func NewDynamicMapper(steps ...Step) Handler {
 
 // DefaultMapper sends the row as JSON with an operation header and no key.
 // The primary key is not part of the message, so choose the key with KeyFromColumns.
-func DefaultMapper(msg *Message) []gokafka.Message {
+func DefaultMapper(msg *cdc.Message) []gokafka.Message {
 	return defaultMapper(msg)
 }
 
-var defaultMapper = NewDynamicMapper(OperationHeader())
+var defaultMapper = New(OperationHeader())
 
 func encodeRowJSON(c *change.Change) ([]byte, error) {
 	return json.Marshal(c.Row())

@@ -212,22 +212,28 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 }
 ```
 
-## Dynamic Mapper
+## Mapper
 
-Instead of writing the whole handler, build it from steps. `NewDynamicMapper` runs the steps in order on every change and sends one message per change that no step drops. With no step that sets the value, the value is the row as JSON: the new row, or the old row for deletes.
+Instead of writing the whole handler, build it from steps with the `mapper` package. `mapper.New` runs the steps in order on every change and sends one message per change that no step drops. With no step that sets the value, the value is the row as JSON: the new row, or the old row for deletes.
 
 ```go
-mapper := cdc.NewDynamicMapper(
-	cdc.Apply(
+import (
+	cdc "github.com/Trendyol/go-pq-cdc-kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/mapper"
+	"github.com/Trendyol/go-pq-cdc/change"
+)
+
+m := mapper.New(
+	mapper.Apply(
 		change.OnlyOps(change.Insert, change.Update, change.Delete),
 		change.Exclude("password"),
 	),
-	cdc.KeyFromColumns("id"),
-	cdc.OperationHeader(),
-	cdc.TombstoneOnDelete(),
+	mapper.KeyFromColumns("id"),
+	mapper.OperationHeader(),
+	mapper.TombstoneOnDelete(),
 )
 
-connector, err := cdc.NewConnector(ctx, cfg, mapper)
+connector, err := cdc.NewConnector(ctx, cfg, m)
 ```
 
 | Step | What it does |
@@ -240,24 +246,24 @@ connector, err := cdc.NewConnector(ctx, cfg, mapper)
 | `TombstoneOnDelete()` | Sends deletes with a nil value |
 | `EnvelopeValue()` | Writes the value as `{"op", "before", "after", "source"}` |
 
-`DefaultMapper` is `NewDynamicMapper(OperationHeader())`: the row as JSON, the operation header and no key. The primary key is not part of the message, so pick the key with `KeyFromColumns`.
+`mapper.DefaultMapper` is `mapper.New(mapper.OperationHeader())`: the row as JSON, the operation header and no key. The primary key is not part of the message, so pick the key with `KeyFromColumns`.
 
-A step is a `func(*cdc.Record) bool` that fills in the record and returns `false` to drop the change. Any function with that signature can be passed to `NewDynamicMapper`:
+A step is a `func(*mapper.Record) bool` that fills in the record and returns `false` to drop the change. Any function with that signature can be passed to `mapper.New`:
 
 ```go
-source := func(r *cdc.Record) bool {
+source := func(r *mapper.Record) bool {
 	r.Headers = append(r.Headers, gokafka.Header{Key: "source", Value: []byte("users-db")})
 	return true
 }
 ```
 
-Steps work on a copy of the change, so the original message is never modified. See the [dynamic mapper example](./example/dynamic-mapper).
+Steps work on a copy of the change, so the original message is never modified. See the [mapper example](./example/mapper).
 
 ## Examples
 
 * [Simple](./example/simple)
 * [Snapshot](./example/snapshot)
-* [Dynamic Mapper](./example/dynamic-mapper)
+* [Mapper](./example/mapper)
 
 ## Configuration
 

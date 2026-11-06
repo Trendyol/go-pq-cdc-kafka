@@ -1,4 +1,4 @@
-package cdc
+package mapper
 
 import (
 	"encoding/json"
@@ -36,7 +36,7 @@ func KeyFromColumns(cols ...string) Step {
 		for _, col := range cols {
 			v, ok := row[col]
 			if !ok {
-				logger.Warn("dynamic mapper: key column missing", "table", r.Change.FullName(), "column", col)
+				logger.Warn("mapper: key column missing", "table", r.Change.FullName(), "column", col)
 				return true
 			}
 			parts = append(parts, fmt.Sprint(v))

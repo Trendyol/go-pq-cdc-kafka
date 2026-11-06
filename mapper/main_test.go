@@ -1,4 +1,4 @@
-package cdc
+package mapper
 
 import (
 	"log/slog"
