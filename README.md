@@ -212,10 +212,69 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 }
 ```
 
+## Mapper
+
+Instead of writing the whole handler, build it from steps with the `mapper` package. `mapper.New` runs the steps in order on every change and sends one message per change that no step drops. With no step that sets the value, the value is the row as JSON: the new row, or the old row for deletes.
+
+```go
+import (
+	cdc "github.com/Trendyol/go-pq-cdc-kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/mapper"
+	"github.com/Trendyol/go-pq-cdc/change"
+)
+
+m := mapper.New(
+	mapper.Apply(
+		change.OnlyOps(change.Insert, change.Update, change.Delete),
+		change.Exclude("password"),
+	),
+	mapper.KeyFromColumns("id"),
+	mapper.OperationHeader(),
+	mapper.TombstoneOnDelete(),
+)
+
+connector, err := cdc.NewConnector(ctx, cfg, m)
+```
+
+| Step | What it does |
+| --- | --- |
+| `Apply(steps...)` | Runs target-independent steps from [`go-pq-cdc/change`](https://github.com/Trendyol/go-pq-cdc#change-and-transform-steps): `OnlyOps`, `OnlyTables`, `Where`, `Include`, `Exclude`, `Rename`, `Mask`, `InsertField`, `When` |
+| `When(predicate, steps...)` | Runs the steps only on changes that match a `change` predicate (`IsOp`, `IsTable`, `Not`, or your own); other changes pass through |
+| `KeyFromColumns(cols...)` | Sets the key from the row's columns, joined with `:` when there are several; stays empty if a column is missing |
+| `OperationHeader()`, `TableHeader()`, `LSNHeader()`, `XIDHeader()` | Add the `operation`, `table`, `lsn` and `xid` headers |
+| `Header(key, func)` | Adds a header computed from the record |
+| `Topic(name)` | Sends to `name` instead of the table's topic |
+| `TopicFrom(func)` | Computes the topic per record; an empty result keeps the table's topic |
+| `TombstoneOnDelete()` | Sends deletes with a nil value |
+| `EnvelopeValue()` | Writes the value as `{"op", "before", "after", "source"}` |
+| `DebeziumValue()` | Writes the value like a Debezium PostgreSQL event payload: `op` is `c`/`u`/`d`/`r`, with `ts_ms` and `source` (`connector`, `schema`, `table`, `txId`, `lsn`, `snapshot`, `ts_ms`) |
+
+```go
+// deletes go to their own topic without the email; everything else is untouched
+mapper.When(change.IsOp(change.Delete),
+	mapper.Apply(change.Exclude("email")),
+	mapper.Topic("users.deleted"),
+)
+```
+
+`mapper.DefaultMapper` is `mapper.New(mapper.OperationHeader())`: the row as JSON, the operation header and no key. The primary key is not part of the message, so pick the key with `KeyFromColumns`.
+
+A step is a `func(*mapper.Record) bool` that fills in the record and returns `false` to drop the change. Any function with that signature can be passed to `mapper.New`:
+
+```go
+source := func(r *mapper.Record) bool {
+	r.Headers = append(r.Headers, gokafka.Header{Key: "source", Value: []byte("users-db")})
+	return true
+}
+```
+
+Steps work on a copy of the change, so the original message is never modified. See the [mapper example](./example/mapper).
+
 ## Examples
 
 * [Simple](./example/simple)
 * [Snapshot](./example/snapshot)
+* [Mapper](./example/mapper)
 
 ## Configuration
 
