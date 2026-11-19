@@ -15,12 +15,18 @@ services:
       - "5432:5432"
     networks:
       - cdc_net
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql
+      - /tmp
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cdc_user -d cdc_db"]
       interval: 10s
       timeout: 5s
       retries: 5
-    
+
   ##### KAFKA ######
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v23.1.12
@@ -42,9 +48,14 @@ services:
       - 19644:9644
     volumes:
       - redpanda_data:/var/lib/redpanda/data
-      - ~/pandapost_integration:/tmp/pandapost_integration
     networks:
       - cdc_net
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /etc/redpanda:uid=101,gid=101
+      - /tmp
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
       interval: 15s
@@ -71,6 +82,11 @@ services:
       - 8085:8080
     networks:
       - cdc_net
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     depends_on:
       - redpanda
 
