@@ -308,6 +308,49 @@ func (h *outboxHandler) OnBatchSuccess(msgs []*kafka.Message) {
 
 `OnError` is still called per message, including for oversized messages skipped via `skipOversizedMessages`.
 
+## Online delivery (`snapshot.strategy: online`)
+
+The existing `NewConnector(ctx, cfg, Handler, ...Option)` signature is unchanged. It selects online
+capture internally when `cfg.CDC.Snapshot.Strategy` is `online`, invoking your existing non-nil
+`Handler` for transformation. Consistent/legacy capture still uses its original batching path.
+
+```go
+// handler is your existing func(*cdc.Message) []kafka.Message transformation.
+connector, err := cdc.NewConnector(ctx, cfg, handler) // cdc = github.com/Trendyol/go-pq-cdc-kafka
+if err != nil {
+    return err
+}
+defer connector.Close()
+connector.Start(ctx)
+if err := connector.WaitUntilReady(ctx); err != nil {
+    return err
+}
+```
+
+Online mode composes core capture (primary-only, protocol 1, `REPLICA IDENTITY FULL`, immutable integer
+key) with owned synchronous `acks=all` writes. Your Handler remains a transformation, **not** a durable
+receipt. Only successful broker completion of every output permits core source progress. Caller
+payload/key/topic/custom headers are preserved, with mandatory stable identity/order/output-index
+headers. Empty filters, unsafe tombstones and reserved `cdc-*` headers fail closed online; not all
+legacy filtering/response-handler semantics are supported. `WithLogger` and `WithPrometheusMetrics`
+remain supported; `WithResponseHandler` is explicitly rejected online. `NewOnlineConnector` remains
+an optional builtin-envelope convenience, not a required migration.
+
+Admission is fail closed and happens before any connection is opened. It requires
+`snapshot.strategy: online`, `requiredAcks: -1` (online default), a key-preserving balancer
+(`Hash`, `ReferenceHash`, `CRC32Balancer`, `Murmur2Balancer`), an explicit `tableTopicMapping` entry
+for every captured table, pre-provisioned topics (`allowAutoTopicCreation: false`),
+`skipOversizedMessages: false`, a finite `kafka.online.maxAttempts` (default 3) and positive
+timeouts. An event without a destination topic, an unencodable image or an envelope larger than
+`maxMessageBytes` stops delivery instead of being skipped.
+
+See [docs/online-kafka.md](./docs/online-kafka.md) for the versioned envelope contract, the consumer
+deduplication/order requirements and the documented limits.
+
+> This source requires a matching core containing the online factory and metadata. Published core
+> v1.14.16 does not contain that API. Local qualification uses an external workspace with actual source
+> trees; the planned staging build must pin both exact committed SHAs. No module release is implied.
+
 ## API
 
 | Endpoint             | Description                                                                               |

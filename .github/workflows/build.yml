@@ -14,6 +14,9 @@ concurrency:
 
 jobs:
   build:
+    if: >-
+      ${{ !(github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/build/online-staging-kafka-20261113') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -49,3 +52,155 @@ jobs:
       contents: read
       security-events: write
     secrets: inherit
+
+  online-staging-archive:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/build/online-staging-kafka-20261113' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      GOTOOLCHAIN: go1.26.10
+      GOFLAGS: -mod=readonly
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact Kafka event commit
+        # checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: kafka
+          persist-credentials: false
+
+      - name: Validate Kafka binding and core pin
+        id: binding
+        env:
+          KAFKA_EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 kafka/packaging/online-staging/source_binding.py \
+            check kafka "$KAFKA_EVENT_SHA"
+          core_sha=$(python3 \
+            kafka/packaging/online-staging/source_binding.py \
+            pin kafka/.ci/online-core-ref)
+          printf 'core_sha=%s\n' "$core_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact core pin
+        # checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Trendyol/go-pq-cdc
+          ref: ${{ steps.binding.outputs.core_sha }}
+          path: core
+          persist-credentials: false
+
+      - name: Set up Go without dependency cache
+        # setup-go v7.1.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version: '1.26.10'
+          cache: false
+
+      - name: Verify SDK integrity and create external workspace
+        id: tools
+        env:
+          CORE_SHA: ${{ steps.binding.outputs.core_sha }}
+        run: |
+          set -euo pipefail
+          python3 kafka/packaging/online-staging/source_binding.py \
+            check core "$CORE_SHA"
+          go_root=$(python3 kafka/packaging/online-staging/verify_tools.py \
+            --prepare-go "$RUNNER_TEMP/verified-sdk")
+          builder_image=$(python3 \
+            kafka/packaging/online-staging/verify_tools.py --buildkit-image)
+          printf 'buildkit_image=%s\n' "$builder_image" >> "$GITHUB_OUTPUT"
+          printf '%s/bin\n' "$go_root" >> "$GITHUB_PATH"
+          printf 'GOROOT=%s\n' "$go_root" >> "$GITHUB_ENV"
+          python3 kafka/packaging/online-staging/source_binding.py \
+            workspace core kafka "$RUNNER_TEMP/online.go.work" --integration
+          printf 'GOWORK=%s\n' "$RUNNER_TEMP/online.go.work" >> "$GITHUB_ENV"
+
+      - name: Serial source and runner qualification
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: 'true'
+        run: |
+          set -euo pipefail
+          go version
+          module_dir=$(go list -m -f '{{.Dir}}' \
+            github.com/Trendyol/go-pq-cdc)
+          test "$module_dir" = "$GITHUB_WORKSPACE/core"
+          GOWORK=off GOBIN="$RUNNER_TEMP/tools" go install \
+            github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+          "$RUNNER_TEMP/tools/golangci-lint" version
+          cd core
+          go test -race -p=1 -count=1 -timeout=10m ./...
+          go vet ./...
+          "$RUNNER_TEMP/tools/golangci-lint" run --timeout=5m \
+            --max-issues-per-linter=0 --max-same-issues=0 \
+            --output.json.path="$RUNNER_TEMP/core-lint.json" ./...
+          cd ../kafka
+          go test -race -p=1 -count=1 -timeout=10m \
+            . ./config ./kafka/... ./internal/... ./cmd/... ./packaging/...
+          go vet ./...
+          "$RUNNER_TEMP/tools/golangci-lint" run --timeout=5m \
+            --max-issues-per-linter=0 --max-same-issues=0 \
+            --output.json.path="$RUNNER_TEMP/kafka-lint.json" ./...
+          python3 -m unittest discover \
+            -s packaging/online-staging -p 'test_*.py'
+          POSTGRES_TEST_IMAGE=16-alpine go test -race -p=1 -count=1 -v \
+            -run '^TestOnlineStagingProcess' -timeout=10m ./integration_test \
+            | tee "$RUNNER_TEMP/runner-pg16.log"
+          grep -q 'server_version_num=16' "$RUNNER_TEMP/runner-pg16.log"
+          cd ../core/integration_test
+          profile='^TestOnline(FullImages|TypeProfileStartup|QualifiedArrays|'
+          profile+='GeneratedColumnsStartup|SlotStatesMajors)$'
+          POSTGRES_VERSION=17-alpine go test -race -p=1 -count=1 -v \
+            -run "$profile" -timeout=15m . \
+            | tee "$RUNNER_TEMP/core-pg17.log"
+          grep -q 'server_version_num=17' "$RUNNER_TEMP/core-pg17.log"
+
+      - name: Set up immutable Buildx and BuildKit
+        id: buildx
+        # setup-buildx v4.4.1; Node24 on the hosted Ubuntu runner.
+        uses: >-
+          docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+        with:
+          version: v0.39.0
+          driver: docker-container
+          driver-opts: image=${{ steps.tools.outputs.buildkit_image }}
+          buildkitd-flags: --oci-worker-gc=true
+          cache-binary: false
+
+      - name: Build and validate OCI archive without publication
+        env:
+          KAFKA_EVENT_SHA: ${{ github.sha }}
+          CORE_SHA: ${{ steps.binding.outputs.core_sha }}
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+          BUILDER_NODES: ${{ steps.buildx.outputs.nodes }}
+        run: |
+          set -euo pipefail
+          python3 kafka/packaging/online-staging/verify_tools.py \
+            --verify-buildx "$HOME/.docker/cli-plugins/docker-buildx"
+          printf '%s\n' "$BUILDER_NODES" > "$RUNNER_TEMP/builder-nodes.json"
+          python3 kafka/packaging/online-staging/build.py \
+            --core core --kafka kafka --core-sha "$CORE_SHA" \
+            --kafka-sha "$KAFKA_EVENT_SHA" \
+            --engine buildx --builder "$BUILDER_NAME" \
+            --builder-nodes "$RUNNER_TEMP/builder-nodes.json" \
+            --run-id "$GITHUB_RUN_ID" --runner-image-os "$ImageOS" \
+            --runner-image-version "$ImageVersion" \
+            --output "$RUNNER_TEMP/online-artifact"
+          cd "$RUNNER_TEMP/online-artifact"
+          sha256sum -c SHA256SUMS
+
+      - name: Upload checked archive bundle
+        # upload-artifact v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: online-staging-${{ github.sha }}-linux-amd64
+          path: ${{ runner.temp }}/online-artifact/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

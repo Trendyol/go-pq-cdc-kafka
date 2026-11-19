@@ -1,0 +1,12 @@
+{
+  "go": {
+    "version": "1.26.10",
+    "url": "https://dl.google.com/go/go1.26.10.linux-amd64.tar.gz",
+    "sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
+  },
+  "buildx": {
+    "version": "v0.39.0",
+    "sha256": "5fb31a097304fbf6dd4038649a0decf32c2b9510e4047acd7d68b9d700c46194"
+  },
+  "buildkitImage": "moby/buildkit@sha256:97719ccb2ac86fb44fd36f330a6d302f63dddd5326f3ada24f9c05ccac0d9098"
+}

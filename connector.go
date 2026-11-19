@@ -11,6 +11,7 @@ import (
 	"github.com/Trendyol/go-pq-cdc-kafka/internal/slices"
 	"github.com/Trendyol/go-pq-cdc-kafka/kafka"
 	"github.com/Trendyol/go-pq-cdc-kafka/kafka/producer"
+	cdcconfig "github.com/Trendyol/go-pq-cdc/config"
 	"github.com/Trendyol/go-pq-cdc/logger"
 	"github.com/Trendyol/go-pq-cdc/pq/replication"
 	"github.com/Trendyol/go-pq-cdc/pq/timescaledb"
@@ -25,18 +26,22 @@ type Connector interface {
 }
 
 type connector struct {
-	partitionCache  sync.Map
-	cdc             cdc.Connector
-	responseHandler kafka.ResponseHandler
-	client          kafka.Client
-	producer        producer.Producer
-	handler         Handler
-	cfg             *config.Connector
-	readyCh         chan struct{}
-	metrics         []prometheus.Collector
+	partitionCache     sync.Map
+	cdc                cdc.Connector
+	responseHandler    kafka.ResponseHandler
+	responseHandlerSet bool
+	client             kafka.Client
+	producer           producer.Producer
+	handler            Handler
+	cfg                *config.Connector
+	readyCh            chan struct{}
+	metrics            []prometheus.Collector
 }
 
 func NewConnector(ctx context.Context, config config.Connector, handler Handler, options ...Option) (Connector, error) {
+	if config.CDC.Snapshot.Strategy == cdcconfig.SnapshotStrategyOnline {
+		return newOnlineFromExistingConstructor(ctx, config, handler, options)
+	}
 	config.SetDefault()
 
 	kafkaConnector := &connector{

@@ -19,6 +19,7 @@ func (ops Options) Apply(c Connector) {
 func WithResponseHandler(respHandler kafka.ResponseHandler) Option {
 	return func(c Connector) {
 		c.(*connector).responseHandler = respHandler
+		c.(*connector).responseHandlerSet = true
 	}
 }
 

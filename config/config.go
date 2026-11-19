@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"time"
@@ -20,6 +21,7 @@ type Kafka struct {
 	Balancer                    string            `yaml:"balancer"`
 	Brokers                     []string          `yaml:"brokers"`
 	MetadataTopics              []string          `yaml:"metadataTopics"`
+	Online                      OnlineKafka       `yaml:"online" mapstructure:"online"`
 	ProducerMaxAttempts         int               `yaml:"producerMaxAttempts"`
 	ReadTimeout                 time.Duration     `yaml:"readTimeout"`
 	WriteTimeout                time.Duration     `yaml:"writeTimeout"`
@@ -32,6 +34,28 @@ type Kafka struct {
 	AllowAutoTopicCreation      bool              `yaml:"allowAutoTopicCreation"`
 	SkipOversizedMessages       bool              `yaml:"skipOversizedMessages"`
 	MaxMessageBytes             string            `yaml:"maxMessageBytes"`
+}
+
+// OnlineKafka bounds the additive synchronous online write path. It never
+// applies to legacy batching, whose defaults and fields stay unchanged.
+type OnlineKafka struct {
+	MaxAttempts  int           `yaml:"maxAttempts" mapstructure:"maxAttempts"`
+	CloseTimeout time.Duration `yaml:"closeTimeout" mapstructure:"closeTimeout"`
+}
+
+// onlineKafkaDefaultMaxAttempts keeps retries finite: the legacy batch path
+// retries forever by design, which cannot bound a synchronous acknowledgement.
+const onlineKafkaDefaultMaxAttempts = 3
+
+const onlineKafkaDefaultCloseTimeout = 5 * time.Second
+
+func (o *OnlineKafka) setDefault() {
+	if o.MaxAttempts == 0 {
+		o.MaxAttempts = onlineKafkaDefaultMaxAttempts
+	}
+	if o.CloseTimeout == 0 {
+		o.CloseTimeout = onlineKafkaDefaultCloseTimeout
+	}
 }
 
 type Connector struct {
@@ -56,6 +80,15 @@ func (k *Kafka) GetBalancer() kafka.Balancer {
 	default:
 		panic("invalid kafka balancer method, given: " + k.Balancer)
 	}
+}
+
+// ValidateBalancer rejects an unknown name before GetBalancer panics.
+func (k *Kafka) ValidateBalancer() error {
+	switch k.Balancer {
+	case "", "Hash", "LeastBytes", "RoundRobin", "ReferenceHash", "CRC32Balancer", "Murmur2Balancer":
+		return nil
+	}
+	return fmt.Errorf("invalid kafka balancer method, given: %q", k.Balancer)
 }
 
 func (k *Kafka) GetCompression() int8 {
@@ -101,4 +134,6 @@ func (c *Connector) SetDefault() {
 	if c.Kafka.MaxMessageBytes == "" {
 		c.Kafka.MaxMessageBytes = "1mb"
 	}
+
+	c.Kafka.Online.setDefault()
 }
