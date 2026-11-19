@@ -3,6 +3,7 @@ package cdc
 import (
 	"time"
 
+	"github.com/Trendyol/go-pq-cdc/change"
 	"github.com/Trendyol/go-pq-cdc/pq"
 	"github.com/Trendyol/go-pq-cdc/pq/message/format"
 	"github.com/Trendyol/go-pq-cdc/pq/replication"
@@ -28,22 +29,46 @@ type Message struct {
 }
 
 func newMessage(ctx *replication.ListenerContext) *Message {
-	var msg *Message
-	switch m := ctx.Message.(type) {
-	case *format.Insert:
-		msg = NewInsertMessage(m)
-	case *format.Update:
-		msg = NewUpdateMessage(m)
-	case *format.Delete:
-		msg = NewDeleteMessage(m)
-	case *format.Snapshot:
-		msg = NewSnapshotMessage(m)
-	default:
-		return nil
+	if c, ok := change.FromListener(ctx); ok {
+		return newMessageFromChange(c)
 	}
 
-	msg.TransactionID = ctx.Xid
-	return msg
+	// change.FromListener only carries snapshot rows; the snapshot BEGIN and END
+	// events still reach handlers, with no data, as they did before.
+	if m, ok := ctx.Message.(*format.Snapshot); ok {
+		msg := NewSnapshotMessage(m)
+		msg.TransactionID = ctx.Xid
+		return msg
+	}
+	return nil
+}
+
+func newMessageFromChange(c *change.Change) *Message {
+	return &Message{
+		EventTime:      c.EventTime,
+		TableName:      c.Table,
+		TableNamespace: c.Schema,
+		OldData:        c.Old,
+		NewData:        c.New,
+		Type:           MessageType(c.Op),
+		LSN:            c.LSN,
+		TransactionID:  c.Xid,
+	}
+}
+
+// Change returns the message as a change.Change, the shape the steps in
+// github.com/Trendyol/go-pq-cdc/change work on. The row maps are shared with the message.
+func (m *Message) Change() *change.Change {
+	return &change.Change{
+		Op:        change.Op(m.Type),
+		Schema:    m.TableNamespace,
+		Table:     m.TableName,
+		Old:       m.OldData,
+		New:       m.NewData,
+		LSN:       m.LSN,
+		Xid:       m.TransactionID,
+		EventTime: m.EventTime,
+	}
 }
 
 func NewInsertMessage(m *format.Insert) *Message {
