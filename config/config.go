@@ -10,28 +10,31 @@ import (
 )
 
 type Kafka struct {
-	ProducerBatchBytes          string            `yaml:"producerBatchBytes"`
-	TableTopicMapping           map[string]string `yaml:"tableTopicMapping"`
-	InterCA                     []byte            `yaml:"interCA"`
-	ScramUsername               string            `yaml:"scramUsername"`
-	ScramPassword               string            `yaml:"scramPassword"`
-	RootCA                      []byte            `yaml:"rootCA"`
-	ClientID                    string            `yaml:"clientID"`
-	Balancer                    string            `yaml:"balancer"`
-	Brokers                     []string          `yaml:"brokers"`
-	MetadataTopics              []string          `yaml:"metadataTopics"`
-	ProducerMaxAttempts         int               `yaml:"producerMaxAttempts"`
-	ReadTimeout                 time.Duration     `yaml:"readTimeout"`
-	WriteTimeout                time.Duration     `yaml:"writeTimeout"`
-	RequiredAcks                int               `yaml:"requiredAcks"`
-	ProducerBatchSize           int               `yaml:"producerBatchSize"`
-	MetadataTTL                 time.Duration     `yaml:"metadataTTL"`
-	ProducerBatchTickerDuration time.Duration     `yaml:"producerBatchTickerDuration"`
-	Compression                 int8              `yaml:"compression"`
-	SecureConnection            bool              `yaml:"secureConnection"`
-	AllowAutoTopicCreation      bool              `yaml:"allowAutoTopicCreation"`
-	SkipOversizedMessages       bool              `yaml:"skipOversizedMessages"`
-	MaxMessageBytes             string            `yaml:"maxMessageBytes"`
+	ProducerBatchBytes string            `yaml:"producerBatchBytes"`
+	TableTopicMapping  map[string]string `yaml:"tableTopicMapping"`
+	// Mappings describes, per table, the Kafka message mapper.FromConfig builds. Keys are schema.table;
+	// a name without a schema means public.
+	Mappings                    map[string]Mapping `yaml:"mappings"`
+	InterCA                     []byte             `yaml:"interCA"`
+	ScramUsername               string             `yaml:"scramUsername"`
+	ScramPassword               string             `yaml:"scramPassword"`
+	RootCA                      []byte             `yaml:"rootCA"`
+	ClientID                    string             `yaml:"clientID"`
+	Balancer                    string             `yaml:"balancer"`
+	Brokers                     []string           `yaml:"brokers"`
+	MetadataTopics              []string           `yaml:"metadataTopics"`
+	ProducerMaxAttempts         int                `yaml:"producerMaxAttempts"`
+	ReadTimeout                 time.Duration      `yaml:"readTimeout"`
+	WriteTimeout                time.Duration      `yaml:"writeTimeout"`
+	RequiredAcks                int                `yaml:"requiredAcks"`
+	ProducerBatchSize           int                `yaml:"producerBatchSize"`
+	MetadataTTL                 time.Duration      `yaml:"metadataTTL"`
+	ProducerBatchTickerDuration time.Duration      `yaml:"producerBatchTickerDuration"`
+	Compression                 int8               `yaml:"compression"`
+	SecureConnection            bool               `yaml:"secureConnection"`
+	AllowAutoTopicCreation      bool               `yaml:"allowAutoTopicCreation"`
+	SkipOversizedMessages       bool               `yaml:"skipOversizedMessages"`
+	MaxMessageBytes             string             `yaml:"maxMessageBytes"`
 }
 
 type Connector struct {

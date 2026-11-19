@@ -1,0 +1,57 @@
+# The connection, publication and slot fields are the ones of go-pq-cdc's config.Config.
+cdc:
+  host: 127.0.0.1
+  username: cdc_user
+  password: cdc_pass
+  database: cdc_db
+  publication:
+    createIfNotExists: true
+    name: cdc_publication_mapper_config
+    operations: [INSERT, UPDATE, DELETE]
+    tables:
+      - name: users
+        schema: public
+        replicaIdentity: FULL
+      - name: orders
+        schema: public
+        replicaIdentity: FULL
+  slot:
+    createIfNotExists: true
+    name: cdc_slot_mapper_config
+    slotActivityCheckerInterval: 3000
+  metric:
+    port: 8081
+  logger:
+    level: INFO
+
+kafka:
+  brokers: [localhost:19092]
+  allowAutoTopicCreation: true
+  producerBatchTickerDuration: 200ms
+  tableTopicMapping:
+    public.users: users.0
+    public.orders: orders.0
+
+  # One mapping per table. The steps run in a fixed order:
+  # operations, include, exclude, mask, rename, insertFields (go-pq-cdc's change.Config),
+  # steps added in code with mapper.WithSteps, then key, headers, topic, operationTopics,
+  # tombstoneOnDelete and value.
+  mappings:
+    users:
+      exclude: [password]
+      mask: [email]
+      insertFields:
+        source_db: users-db
+      key: [id]
+      headers: [operation, table]
+      operationTopics:
+        DELETE: users.deleted
+      tombstoneOnDelete: true
+
+    orders:
+      operations: [INSERT, UPDATE]
+      rename:
+        user_id: customer_id
+      key: [customer_id, id]   # names after rename
+      headers: [operation, lsn]
+      value: envelope          # {"op", "before", "after", "source"}
