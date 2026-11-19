@@ -270,7 +270,6 @@ connector, err := cdc.NewConnector(ctx, cfg, m)
 | `TopicFrom(func)` | Computes the topic per record; an empty result keeps the table's topic |
 | `TombstoneOnDelete()` | Sends deletes with a nil value |
 | `EnvelopeValue()` | Writes the value as `{"op", "before", "after", "source"}` |
-| `DebeziumValue()` | Writes the value like a Debezium PostgreSQL event payload: `op` is `c`/`u`/`d`/`r`, with `ts_ms` and `source` (`connector`, `schema`, `table`, `txId`, `lsn`, `snapshot`, `ts_ms`) |
 
 ```go
 // deletes go to their own topic without the email; everything else is untouched
