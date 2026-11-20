@@ -13,6 +13,7 @@ import (
 	"github.com/Trendyol/go-pq-cdc/pq/replication"
 	"github.com/prometheus/client_golang/prometheus"
 	gokafka "github.com/segmentio/kafka-go"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMain(m *testing.M) {
@@ -332,6 +333,187 @@ func TestFlushMessages_SkipOversized_MessageTooLargeRetryDropsOversized(t *testi
 	}
 }
 
+// recordingContext returns a listener context whose Ack appends name to acks.
+func recordingContext(acks *[]string, name string) *replication.ListenerContext {
+	return &replication.ListenerContext{Ack: func() error {
+		*acks = append(*acks, name)
+		return nil
+	}}
+}
+
+func message(value string) []gokafka.Message {
+	return []gokafka.Message{{Topic: "t", Value: []byte(value)}}
+}
+
+func TestFlushMessages_AcksEveryMessageInDeliveryOrder(t *testing.T) {
+	batch := newTestBatch(&recordingHandler{})
+	defer batch.batchTicker.Stop()
+	var acks []string
+	var acksAtWrite []int
+	batch.writeMessages = func(context.Context, ...gokafka.Message) error {
+		acksAtWrite = append(acksAtWrite, len(acks))
+		return nil
+	}
+
+	for _, name := range []string{"a", "b", "c"} {
+		batch.AddEvents(recordingContext(&acks, name), message(name), time.Now(), true)
+	}
+	batch.FlushMessages()
+
+	assert.Equal(t, []int{0}, acksAtWrite, "no ack may be sent before the write that covers it")
+	assert.Equal(t, []string{"a", "b", "c"}, acks)
+}
+
+func TestFlushMessages_SkipOversized_AcksMessagesWhoseEventsWereDropped(t *testing.T) {
+	batch := newTestBatch(&recordingHandler{})
+	batch.skipOversizedMessages = true
+	batch.maxMessageBytes = 100
+	defer batch.batchTicker.Stop()
+	var written []gokafka.Message
+	batch.writeMessages = func(_ context.Context, msgs ...gokafka.Message) error {
+		written = append(written, msgs...)
+		return nil
+	}
+
+	var acks []string
+	batch.AddEvents(recordingContext(&acks, "oversized"), []gokafka.Message{{Topic: "t", Value: make([]byte, 200)}}, time.Now(), true)
+	batch.AddEvents(recordingContext(&acks, "valid"), message("ok"), time.Now(), true)
+	batch.FlushMessages()
+
+	assert.Len(t, written, 1)
+	assert.Equal(t, []string{"oversized", "valid"}, acks)
+}
+
+func TestAckWhenFlushed_WaitsForPendingBatch(t *testing.T) {
+	batch := newTestBatch(&recordingHandler{})
+	defer batch.batchTicker.Stop()
+	var acks []string
+	var acksAtWrite []int
+	batch.writeMessages = func(context.Context, ...gokafka.Message) error {
+		acksAtWrite = append(acksAtWrite, len(acks))
+		return nil
+	}
+
+	batch.AddEvents(recordingContext(&acks, "row"), message("row"), time.Now(), true)
+	batch.AckWhenFlushed(recordingContext(&acks, "relation"))
+	batch.AckWhenFlushed(recordingContext(&acks, "unmapped"))
+
+	assert.Empty(t, acks, "no ack may overtake the unwritten row")
+	assert.True(t, batch.HasPendingMessages())
+
+	batch.FlushMessages()
+	assert.Equal(t, []int{0}, acksAtWrite, "no ack may be sent before the write that covers it")
+	assert.Equal(t, []string{"row", "relation", "unmapped"}, acks)
+
+	batch.AckWhenFlushed(recordingContext(&acks, "idle"))
+	assert.Equal(t, []string{"row", "relation", "unmapped", "idle"}, acks, "with nothing pending the ack is immediate")
+	assert.False(t, batch.HasPendingMessages())
+}
+
+func TestAckWhenFlushed_FlushesWhenQueuedAcksReachBatchLimit(t *testing.T) {
+	batch := newTestBatch(&recordingHandler{})
+	batch.batchLimit = 3
+	defer batch.batchTicker.Stop()
+	writes := 0
+	batch.writeMessages = func(context.Context, ...gokafka.Message) error { writes++; return nil }
+
+	var acks []string
+	batch.AddEvents(recordingContext(&acks, "row"), message("row"), time.Now(), true)
+	batch.AckWhenFlushed(recordingContext(&acks, "relation"))
+	assert.Empty(t, acks)
+	batch.AckWhenFlushed(recordingContext(&acks, "unmapped"))
+
+	assert.Equal(t, 1, writes)
+	assert.Equal(t, []string{"row", "relation", "unmapped"}, acks)
+}
+
+func TestFlushMessages_FailedWrite_AcksNothingUntilWritten(t *testing.T) {
+	batch := newTestBatch(&recordingHandler{})
+	defer batch.batchTicker.Stop()
+
+	var acks []string
+	var acksDuringFailures []int
+	attempts := 0
+	batch.writeMessages = func(context.Context, ...gokafka.Message) error {
+		attempts++
+		if attempts < 3 {
+			acksDuringFailures = append(acksDuringFailures, len(acks))
+			return errors.New("broker down")
+		}
+		return nil
+	}
+
+	batch.AddEvents(recordingContext(&acks, "a"), message("a"), time.Now(), true)
+	batch.AckWhenFlushed(recordingContext(&acks, "relation"))
+	batch.AddEvents(recordingContext(&acks, "b"), message("b"), time.Now(), true)
+	batch.FlushMessages()
+
+	assert.Equal(t, []int{0, 0}, acksDuringFailures, "nothing may be acked while the write fails")
+	assert.Equal(t, []string{"a", "relation", "b"}, acks)
+}
+
+// The events of one message can straddle the byte-limit pre-flush in
+// AddEvents. That flush writes the message's first event, but the message is
+// acked only once its remaining events are written too.
+func TestAddEvents_BytePreFlushAcksOnlyFullyAddedMessages(t *testing.T) {
+	batch := newTestBatch(&recordingHandler{})
+	defer batch.batchTicker.Stop()
+
+	event := func(key string) gokafka.Message {
+		return gokafka.Message{Topic: "t", Key: []byte(key), Value: make([]byte, 100)}
+	}
+	first := event("before")
+	size := messageSize(&first)
+	// Two events fit; a third one flushes the two before it is added.
+	batch.batchBytes = 2*size + size/2
+
+	var acks []string
+	var writes, acksAtWrite [][]string
+	batch.writeMessages = func(_ context.Context, msgs ...gokafka.Message) error {
+		keys := make([]string, 0, len(msgs))
+		for i := range msgs {
+			keys = append(keys, string(msgs[i].Key))
+		}
+		writes = append(writes, keys)
+		acksAtWrite = append(acksAtWrite, append([]string{}, acks...))
+		return nil
+	}
+
+	batch.AddEvents(recordingContext(&acks, "before"), []gokafka.Message{first}, time.Now(), true)
+	batch.AddEvents(recordingContext(&acks, "multi"), []gokafka.Message{event("multi0"), event("multi1"), event("multi2")}, time.Now(), true)
+
+	assert.Equal(t, [][]string{{"before", "multi0"}}, writes, "the third event flushes the two before it")
+	assert.Equal(t, []string{"before"}, acks, "the pre-flush acks only messages whose events were all added")
+
+	batch.FlushMessages()
+
+	assert.Equal(t, [][]string{{"before", "multi0"}, {"multi1", "multi2"}}, writes)
+	assert.Equal(t, [][]string{{}, {"before"}}, acksAtWrite, "no ack may be sent before the write that covers it")
+	assert.Equal(t, []string{"before", "multi"}, acks)
+}
+
+func TestAddEvents_ChunkedMessageNotAckedOnIntermediateChunkFlush(t *testing.T) {
+	batch := newTestBatch(&recordingHandler{})
+	batch.batchLimit = 2
+	defer batch.batchTicker.Stop()
+	writes := 0
+	batch.writeMessages = func(context.Context, ...gokafka.Message) error { writes++; return nil }
+
+	var acks []string
+	batch.AddEvents(recordingContext(&acks, "before"), message("before"), time.Now(), true)
+	fanout := recordingContext(&acks, "fanout")
+	batch.AddEvents(fanout, message("chunk-1"), time.Now(), false)
+
+	assert.Equal(t, 1, writes, "the batch limit flushes the first chunk")
+	assert.Equal(t, []string{"before"}, acks, "a message is not acked before its last chunk is written")
+
+	batch.AddEvents(fanout, message("chunk-2"), time.Now(), true)
+	assert.Equal(t, []string{"before"}, acks)
+
+	batch.FlushMessages()
+	assert.Equal(t, []string{"before", "fanout"}, acks)
+}
+
 func TestFlushMessages_CloseDuringOutage_StopsRetryWithoutAck(t *testing.T) {
 	handler := &recordingHandler{}
 	batch := newTestBatch(handler)
@@ -341,6 +523,7 @@ func TestFlushMessages_CloseDuringOutage_StopsRetryWithoutAck(t *testing.T) {
 	acked := 0
 	ctx := &replication.ListenerContext{Ack: func() error { acked++; return nil }}
 	batch.AddEvents(ctx, []gokafka.Message{{Topic: "t", Value: []byte("a")}}, time.Now(), true)
+	batch.AckWhenFlushed(&replication.ListenerContext{Ack: func() error { acked++; return nil }})
 
 	done := make(chan struct{})
 	go func() { batch.FlushMessages(); close(done) }()

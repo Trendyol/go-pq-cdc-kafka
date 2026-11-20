@@ -62,6 +62,12 @@ func (p *Producer) Produce(
 	p.ProducerBatch.AddEvents(ctx, messages, eventTime, isLastChunk)
 }
 
+// AckWhenFlushed acks a message that produced no Kafka messages once every
+// message delivered before it has been written.
+func (p *Producer) AckWhenFlushed(ctx *replication.ListenerContext) {
+	p.ProducerBatch.AckWhenFlushed(ctx)
+}
+
 func (p *Producer) Close() error {
 	p.ProducerBatch.Close()
 	return p.ProducerBatch.Writer.Close()
