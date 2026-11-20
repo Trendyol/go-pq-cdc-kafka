@@ -128,32 +128,26 @@ func (c *connector) Close() {
 func (c *connector) listener(ctx *replication.ListenerContext) {
 	msg := newMessage(ctx)
 	if msg == nil {
+		// Relation, Truncate and logical decoding messages carry no row, but
+		// every delivered message must be acked: go-pq-cdc confirms an idle
+		// slot's WAL end only when nothing it delivered is left unacked.
+		c.producer.AckWhenFlushed(ctx)
 		return
 	}
 
 	fullTableName := c.getFullTableName(msg.TableNamespace, msg.TableName)
 
+	// A message that produces nothing is acked through the producer, so its
+	// ack cannot overtake earlier messages still waiting in the batch.
 	topicName, ok := c.resolveTableToTopicName(fullTableName, msg.TableNamespace, msg.TableName)
 	if !ok {
-		if c.producer.HasPendingMessages() {
-			logger.Warn("skipping ACK - pending messages in batch", "table", fullTableName)
-			return
-		}
-		if err := ctx.Ack(); err != nil {
-			logger.Error("ack", "error", err)
-		}
+		c.producer.AckWhenFlushed(ctx)
 		return
 	}
 
 	events := c.handler(msg)
 	if len(events) == 0 {
-		if c.producer.HasPendingMessages() {
-			logger.Warn("skipping ACK - pending messages in batch", "table", fullTableName)
-			return
-		}
-		if err := ctx.Ack(); err != nil {
-			logger.Error("ack", "error", err)
-		}
+		c.producer.AckWhenFlushed(ctx)
 		return
 	}
 

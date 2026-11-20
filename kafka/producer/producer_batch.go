@@ -18,10 +18,10 @@ type Batch struct {
 	metric                Metric
 	batchTicker           *time.Ticker
 	Writer                *gokafka.Writer
-	lastAckCtx            *replication.ListenerContext
 	closing               chan struct{}
 	writeMessages         func(ctx context.Context, msgs ...gokafka.Message) error
 	messages              []gokafka.Message
+	pendingAcks           []*replication.ListenerContext // acked in delivery order by the flush that writes everything before them
 	batchBytes            int64
 	maxMessageBytes       int64
 	currentMessageBytes   int64
@@ -29,7 +29,6 @@ type Batch struct {
 	batchTickerDuration   time.Duration
 	closeOnce             sync.Once
 	flushLock             sync.Mutex
-	hasPendingMessages    bool
 	skipOversizedMessages bool
 }
 
@@ -81,7 +80,7 @@ func (b *Batch) Close() {
 func (b *Batch) HasPendingMessages() bool {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
-	return len(b.messages) > 0 || b.hasPendingMessages
+	return len(b.messages) > 0 || len(b.pendingAcks) > 0
 }
 
 func (b *Batch) AddEvents(ctx *replication.ListenerContext, messages []gokafka.Message, eventTime time.Time, isLastChunk bool) {
@@ -100,12 +99,15 @@ func (b *Batch) AddEvents(ctx *replication.ListenerContext, messages []gokafka.M
 		b.currentMessageBytes += msgSize
 	}
 
-	b.hasPendingMessages = true
 	if isLastChunk {
-		b.lastAckCtx = ctx
+		// A message is complete once its last chunk is in the batch.
+		b.queueAck(ctx)
 	}
 
-	shouldFlush := len(b.messages) >= b.batchLimit || b.currentMessageBytes >= b.batchBytes
+	// Queued acks count too: each one keeps its message referenced until the
+	// flush that acks it.
+	shouldFlush := len(b.messages) >= b.batchLimit || b.currentMessageBytes >= b.batchBytes ||
+		len(b.pendingAcks) >= b.batchLimit
 	b.flushLock.Unlock()
 
 	if isLastChunk {
@@ -114,6 +116,53 @@ func (b *Batch) AddEvents(ctx *replication.ListenerContext, messages []gokafka.M
 
 	if shouldFlush {
 		b.FlushMessages()
+	}
+}
+
+// AckWhenFlushed acks a message that produced no Kafka messages: a non-DML
+// message, a table without a topic mapping, or a handler that returned no
+// events. The ack is a position, so acking it at once could confirm past
+// messages still waiting in the batch; it is queued behind them and acked by
+// the flush that writes them. With nothing pending it is acked now.
+func (b *Batch) AckWhenFlushed(ctx *replication.ListenerContext) {
+	b.flushLock.Lock()
+	defer b.flushLock.Unlock()
+
+	if len(b.messages) == 0 && len(b.pendingAcks) == 0 {
+		ack(ctx)
+		return
+	}
+	b.queueAck(ctx)
+	if len(b.pendingAcks) >= b.batchLimit {
+		b.flushMessages()
+	}
+}
+
+// queueAck appends ctx to the acks sent by the next successful flush, keeping
+// delivery order. The caller must hold flushLock.
+func (b *Batch) queueAck(ctx *replication.ListenerContext) {
+	if ctx == nil {
+		return
+	}
+	b.pendingAcks = append(b.pendingAcks, ctx)
+}
+
+// ackPending acks every queued message in delivery order and releases them.
+// The caller must hold flushLock.
+func (b *Batch) ackPending() {
+	for i, ctx := range b.pendingAcks {
+		ack(ctx)
+		b.pendingAcks[i] = nil
+	}
+	b.pendingAcks = b.pendingAcks[:0]
+}
+
+func ack(ctx *replication.ListenerContext) {
+	if ctx == nil || ctx.Ack == nil {
+		return
+	}
+	if err := ctx.Ack(); err != nil {
+		logger.Error("ack", "error", err)
 	}
 }
 
@@ -126,6 +175,8 @@ func (b *Batch) FlushMessages() {
 // flushMessages performs the flush. The caller must hold flushLock.
 func (b *Batch) flushMessages() {
 	if len(b.messages) == 0 {
+		// Nothing unwritten is queued ahead of these acks.
+		b.ackPending()
 		return
 	}
 
@@ -166,13 +217,10 @@ func (b *Batch) flushMessages() {
 
 	b.messages = b.messages[:0]
 	b.currentMessageBytes = 0
-	b.hasPendingMessages = false
-	if b.lastAckCtx != nil {
-		if ackErr := b.lastAckCtx.Ack(); ackErr != nil {
-			logger.Error("ack", "error", ackErr)
-		}
-		b.lastAckCtx = nil
-	}
+	// Every queued message, and every message delivered before it, is now
+	// written or was skipped as oversized, so none of these acks can confirm
+	// a position past an unwritten message.
+	b.ackPending()
 
 	b.batchTicker.Reset(b.batchTickerDuration)
 }
