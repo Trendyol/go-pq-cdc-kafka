@@ -3,7 +3,7 @@ module github.com/Trendyol/go-pq-cdc-kafka
 go 1.25.0
 
 require (
-	github.com/Trendyol/go-pq-cdc v1.14.17
+	github.com/Trendyol/go-pq-cdc v1.14.18-0.20261126213037-72301c16f348
 	github.com/docker/go-connections v0.5.0
 	github.com/lib/pq v1.10.9
 	github.com/pkg/errors v0.9.1
@@ -11,6 +11,7 @@ require (
 	github.com/segmentio/kafka-go v0.4.51
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.28.0
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -79,6 +80,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230711160842-782d3b101e98 // indirect
 	google.golang.org/grpc v1.58.3 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
