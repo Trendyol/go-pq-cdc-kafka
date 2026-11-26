@@ -235,10 +235,108 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 }
 ```
 
+## Mapper
+
+Instead of writing the whole handler, build it from steps with the `mapper` package. `mapper.New` runs the steps in order on every change and sends one message per change that no step drops. With no step that sets the value, the value is the row as JSON: the new row, or the old row for deletes.
+
+```go
+import (
+	cdc "github.com/Trendyol/go-pq-cdc-kafka"
+	"github.com/Trendyol/go-pq-cdc-kafka/mapper"
+	"github.com/Trendyol/go-pq-cdc/change"
+)
+
+m := mapper.New(
+	mapper.Apply(
+		change.OnlyOps(change.Insert, change.Update, change.Delete),
+		change.Exclude("password"),
+	),
+	mapper.KeyFromColumns("id"),
+	mapper.OperationHeader(),
+	mapper.TombstoneOnDelete(),
+)
+
+connector, err := cdc.NewConnector(ctx, cfg, m)
+```
+
+| Step | What it does |
+| --- | --- |
+| `Apply(steps...)` | Runs target-independent steps from [`go-pq-cdc/change`](https://github.com/Trendyol/go-pq-cdc#change-and-transform-steps): `OnlyOps`, `OnlyTables`, `Where`, `Include`, `Exclude`, `Rename`, `Mask`, `InsertField`, `When` |
+| `When(predicate, steps...)` | Runs the steps only on changes that match a `change` predicate (`IsOp`, `IsTable`, `Not`, or your own); other changes pass through |
+| `KeyFromColumns(cols...)` | Sets the key from the row's columns, joined with `:` when there are several; stays empty if a column is missing |
+| `OperationHeader()`, `TableHeader()`, `LSNHeader()`, `XIDHeader()` | Add the `operation`, `table`, `lsn` and `xid` headers |
+| `Header(key, func)` | Adds a header computed from the record |
+| `Topic(name)` | Sends to `name` instead of the table's topic |
+| `TopicFrom(func)` | Computes the topic per record; an empty result keeps the table's topic |
+| `TombstoneOnDelete()` | Sends deletes with a nil value |
+| `EnvelopeValue()` | Writes the value as `{"op", "before", "after", "source"}` |
+
+```go
+// deletes go to their own topic without the email; everything else is untouched
+mapper.When(change.IsOp(change.Delete),
+	mapper.Apply(change.Exclude("email")),
+	mapper.Topic("users.deleted"),
+)
+```
+
+`mapper.DefaultMapper` is `mapper.New(mapper.OperationHeader())`: the row as JSON, the operation header and no key. The primary key is not part of the message, so pick the key with `KeyFromColumns`.
+
+A step is a `func(*mapper.Record) bool` that fills in the record and returns `false` to drop the change. Any function with that signature can be passed to `mapper.New`:
+
+```go
+source := func(r *mapper.Record) bool {
+	r.Headers = append(r.Headers, gokafka.Header{Key: "source", Value: []byte("users-db")})
+	return true
+}
+```
+
+Steps work on a copy of the change, so the original message is never modified. See the [mapper example](./example/mapper).
+
+### Mapper from config
+
+`kafka.mappings` describes the same mapper per table, and `mapper.FromConfig` builds the handler from it. The column fields are go-pq-cdc's [`change.Config`](https://github.com/Trendyol/go-pq-cdc#change-and-transform-steps); the Kafka fields sit next to them:
+
+```yaml
+kafka:
+  tableTopicMapping:
+    public.users: users.0
+  mappings:
+    users:                      # schema.table; no schema means public
+      exclude: [password]
+      mask: [email]
+      key: [id]
+      headers: [operation, table]
+      operationTopics:
+        DELETE: users.deleted
+      tombstoneOnDelete: true
+```
+
+```go
+handler, err := mapper.FromConfig(cfg.Kafka,
+	mapper.WithSteps("users", myStep),    // optional: a step written in code
+	mapper.WithFallback(existingHandler), // optional: tables without a mapping; default DefaultMapper
+)
+connector, err := cdc.NewConnector(ctx, cfg, handler)
+```
+
+| Field | What it does |
+| --- | --- |
+| `operations`, `include`, `exclude`, `mask`, `rename`, `insertFields` | The column steps of `change.Config` |
+| `key` | Columns the key is built from, joined with `:`; the names are the ones after `rename` |
+| `headers` | Any of `operation`, `table`, `lsn`, `xid` |
+| `topic` | Sends every message of the table to this topic |
+| `operationTopics` | Sends an operation's messages to another topic, such as deletes |
+| `tombstoneOnDelete` | Sends deletes with a nil value |
+| `value` | `row` (default, the row as JSON) or `envelope` |
+
+The steps run in this order: the column steps, the `WithSteps` steps, then key, headers, topic, operation topics, tombstone and value. `FromConfig` reports every mistake at once: an unknown operation, header or value, a key column that the column steps remove, the same table named twice, or a table that is not in `tableTopicMapping` (the connector never hands it to a mapper). See the [mapper from config example](./example/mapper-config).
+
 ## Examples
 
 * [Simple](./example/simple)
 * [Snapshot](./example/snapshot)
+* [Mapper](./example/mapper)
+* [Mapper from config](./example/mapper-config)
 
 ## Configuration
 
@@ -270,6 +368,7 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 | `cdc.snapshot.instanceId`                   |      string       |    no    |  auto   | Custom instance identifier (optional)                                                                           | Auto-generated as hostname-pid if not specified. Useful for tracking workers in multi-instance scenarios.                                                                |
 | `cdc.snapshot.tables`                       |      []Table      |   no*    |    -    | Tables to snapshot (required for `snapshot_only` mode, optional for `initial` mode)                             | **snapshot_only:** Must be specified here (independent from publication). <br> **initial:** If specified, must be a subset of publication tables. If not specified, all publication tables are snapshotted. |
 | `kafka.tableTopicMapping`                   | map[string]string |   yes    |    -    | Mapping of PostgreSQL table events to Kafka topics                                                              | Default topic per table; used when the handler leaves `Topic` empty on a message. Handler-set `Topic` overrides this for that message.                                                                 |
+| `kafka.mappings`                            | map[string]Mapping |    no    |    -    | Per-table message mapping for `mapper.FromConfig`                                                               | See [Mapper from config](#mapper-from-config).                                                                                                                           |
 | `kafka.brokers`                             |     []string      |   yes    |    -    | Broker IP and port information                                                                                  |                                                                                                                                                                          |
 | `kafka.producerBatchSize`                   |      integer      |    no    |  2000   | Maximum message count for batch, if exceeded, flush will be triggered.                                          |                                                                                                                                                                          |
 | `kafka.producerBatchBytes`                  |      string       |    no    |  1mb   | Maximum size (bytes) for batch. If exceeded, flush will be triggered.                                           |                                                                                                                                                                          |
