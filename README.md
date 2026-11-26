@@ -13,6 +13,7 @@ Kafka connector for [go-pq-cdc](https://github.com/Trendyol/go-pq-cdc).
 - **Initial Snapshot Support**: Capture existing data before starting CDC, ensuring downstream systems receive both historical and real-time data.
 - **Automatic Failover**: In the event of a failure, `go-pq-cdc-kafka` can quickly recover and resume data replication.
 - **Concurrency**: Built with Go's concurrency model (goroutines and channels), ensuring lightweight and highly performant parallel operations.
+- **Destination Routing**: Override the Kafka topic per message in your handler; falls back to `kafka.tableTopicMapping`.
 
 ## Why Choose go-pq-cdc-kafka Over Debezium?
 
@@ -96,6 +97,28 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 ```
 
 For detailed configuration and usage, see the [snapshot example](./example/snapshot).
+
+## Destination Routing
+
+Send each row to a **Kafka topic** chosen in your handler. The connector first resolves a default topic from `kafka.tableTopicMapping`, then applies any non-empty `Topic` on each `kafka-go` message your handler returns (handler wins).
+
+```go
+func Handler(msg *cdc.Message) []gokafka.Message {
+	key := []byte(strconv.Itoa(int(msg.NewData["id"].(int32))))
+	body, _ := json.Marshal(msg.NewData)
+
+	topic := "orders.standard"
+	if tier, ok := msg.NewData["tier"].(string); ok && tier == "high" {
+		topic = "orders.critical"
+	}
+
+	return []gokafka.Message{{Topic: topic, Key: key, Value: body}}
+}
+```
+
+You still need a mapping for the source table (for example `public.orders: orders.standard`); the handler override selects the physical topic when needed.
+
+📚 **[Full documentation](https://github.com/Trendyol/go-pq-cdc/blob/main/docs/DESTINATION_ROUTING.md)** (resolution order, limits).
 
 ## Usage
 
@@ -246,7 +269,7 @@ func Handler(msg *cdc.Message) []gokafka.Message {
 | `cdc.snapshot.heartbeatInterval`            |   time.Duration   |    no    |    5s   | Interval for worker heartbeat updates                                                                           | Workers send heartbeat every N seconds to indicate they're processing a chunk.                                                                                           |
 | `cdc.snapshot.instanceId`                   |      string       |    no    |  auto   | Custom instance identifier (optional)                                                                           | Auto-generated as hostname-pid if not specified. Useful for tracking workers in multi-instance scenarios.                                                                |
 | `cdc.snapshot.tables`                       |      []Table      |   no*    |    -    | Tables to snapshot (required for `snapshot_only` mode, optional for `initial` mode)                             | **snapshot_only:** Must be specified here (independent from publication). <br> **initial:** If specified, must be a subset of publication tables. If not specified, all publication tables are snapshotted. |
-| `kafka.tableTopicMapping`                   | map[string]string |   yes    |    -    | Mapping of PostgreSQL table events to Kafka topics                                                              | Maps table names to Kafka topics.                                                                                                                                        |
+| `kafka.tableTopicMapping`                   | map[string]string |   yes    |    -    | Mapping of PostgreSQL table events to Kafka topics                                                              | Default topic per table; used when the handler leaves `Topic` empty on a message. Handler-set `Topic` overrides this for that message.                                                                 |
 | `kafka.brokers`                             |     []string      |   yes    |    -    | Broker IP and port information                                                                                  |                                                                                                                                                                          |
 | `kafka.producerBatchSize`                   |      integer      |    no    |  2000   | Maximum message count for batch, if exceeded, flush will be triggered.                                          |                                                                                                                                                                          |
 | `kafka.producerBatchBytes`                  |      string       |    no    |  1mb   | Maximum size (bytes) for batch. If exceeded, flush will be triggered.                                           |                                                                                                                                                                          |
